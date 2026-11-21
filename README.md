@@ -67,6 +67,10 @@ pr/              PR titles + bodies per repo
 STATUS.md        tracking table
 ```
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 ## Related
 
 - protobom: https://github.com/protobom/protobom
