@@ -5,8 +5,8 @@ so the next PR preempts them.
 
 | Repo | Stage | Flag | Format | NTIA gaps | PR | Maintainer feedback |
 | --- | --- | --- | --- | --- | --- | --- |
-| cmake | queued | `--sbom` / `CMAKE_SBOM` | protobuf | license, hash, purl | — | — |
-| meson | queued | `--sbom` | protobom JSON or vendored proto | transitive graph, hash, license | — | — |
+| cmake | skipped | `install(SBOM)` / `CMAKE_INSTALL_SBOM_FORMATS` | SPDX 3.0 JSON | supplier, hash, purl, per-target license | — | Already ships SBOM generation (`Source/cmSbomBuilder.cxx`); gap is protobom format only. See `recon/cmake.md`. |
+| meson | implemented | `--sbom` | protobom binary | supplier, hash, per-target license | — | Branch `sbom-support` in the Meson clone, commit `9698d44`, 238 insertions. `AGENTS.md` bans AI-written PR text; PR must be human-authored. See `recon/meson.md`, `design/meson.md`. |
 | bazel | queued | `--sbom_output` | protobuf | license, supplier | — | — |
 | gradle | queued | `generateSbom` task | protobuf | supplier, license | — | — |
 | maven | queued | lifecycle binding / plugin | protobuf | supplier, license | — | — |
