@@ -1,0 +1,9 @@
+[package]
+name = "sbom-emitter"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Thin FFI binding for the C SBOM emitter"
+
+[lib]
+path = "src/lib.rs"

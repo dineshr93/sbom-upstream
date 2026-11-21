@@ -60,7 +60,7 @@ Orchestration loop for an agent: [prompts/05-orchestrator.md](prompts/05-orchest
 ```
 prompts/         the copy-pasteable prompts, in order
 build-systems/   per-tool data source, flag shape, format tradeoff, gaps
-emitter/         design brief for a small embeddable SBOM emitter
+emitter/         embeddable SBOM emitter (C core + Python/Go/Rust/Java bindings)
 recon/           recon findings per repo (created as work proceeds)
 design/          approved designs per repo
 pr/              PR titles + bodies per repo

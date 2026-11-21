@@ -1,0 +1,8 @@
+build/
+target/
+libsbom_emitter.a
+libsbom_emitter.so
+sbom.protobom.bin
+sbom.protobom.bin.*
+__pycache__/
+*.pyc
