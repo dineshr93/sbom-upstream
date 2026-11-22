@@ -8,7 +8,7 @@ requested targets and writes it as protobuf binary. Nodes carry the canonical
 label as id, the target name, and the bzlmod module version when the target
 belongs to a module; supplier, license and hash are omitted because Bazel
 does not model them. Output is deterministic: nodes sorted by id, edges by
-(from, to), timestamp honors SOURCE_DATE_EPOCH.
+(from, to), roots sorted by id, timestamp honors SOURCE_DATE_EPOCH.
 
 Uses com.google.protobuf.CodedOutputStream, already linked into the commands
 target, so no new dependency and no new .proto is added.
@@ -21,7 +21,7 @@ target, so no new dependency and no new .proto is added.
  .../lib/runtime/commands/BuildCommand.java    |  30 ++-
  src/test/shell/integration/BUILD              |  11 +
  src/test/shell/integration/sbom_test.sh       |  85 ++++++
- 8 files changed, 459 insertions(+), 4 deletions(-)
+ 8 files changed, 457 insertions(+), 4 deletions(-)
  create mode 100644 src/main/java/com/google/devtools/build/lib/bazel/sbom/BUILD
  create mode 100644 src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomOptions.java
  create mode 100644 src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomWriter.java
@@ -177,10 +177,8 @@ index 0000000..62a855c
 +import java.io.IOException;
 +import java.io.OutputStream;
 +import java.util.ArrayDeque;
-+import java.util.ArrayList;
 +import java.util.Deque;
 +import java.util.LinkedHashSet;
-+import java.util.List;
 +import java.util.Map;
 +import java.util.Set;
 +import java.util.TreeMap;
@@ -238,7 +236,7 @@ index 0000000..62a855c
 +
 +    Deque<ConfiguredTargetKey> queue = new ArrayDeque<>();
 +    Set<ConfiguredTargetKey> seen = new LinkedHashSet<>();
-+    List<String> roots = new ArrayList<>();
++    Set<String> roots = new TreeSet<>();
 +    for (ConfiguredTarget target : result.getActualTargets()) {
 +      roots.add(target.getLabel().getCanonicalForm());
 +      ConfiguredTargetKey key = ConfiguredTargetKey.fromConfiguredTarget(target);
@@ -314,7 +312,7 @@ index 0000000..62a855c
 +        });
 +  }
 +
-+  private static byte[] nodeList(Map<String, Node> nodes, Set<Edge> edges, List<String> roots)
++  private static byte[] nodeList(Map<String, Node> nodes, Set<Edge> edges, Set<String> roots)
 +      throws IOException {
 +    return msg(
 +        out -> {

@@ -20,6 +20,8 @@
 # Tool{name=1,version=2}, Person{name=1,is_org=2}, NodeList{nodes=1,
 # edges=2,root_elements=3}, Node{id=1,name=3,version=4},
 # Edge{type=1,from=2,to=3}, type 10=dependsOn.
+# The root node is package@version. Component nodes omit version: automake
+# does not model a per-component version, so it is never fabricated.
 # ponytail: shell printf writer; assumes component names contain no '%'
 # or backslash.  Not in CLEANFILES on purpose (rebuilt on every make).
 
@@ -36,12 +38,14 @@ sbom.protobom.bin:
 	  p=$$2; v $${#p}; printf '%s' "$$p"; }; \
 	sec=$${SOURCE_DATE_EPOCH-`date +%s`}; \
 	ts=$$(printf '\010')$$(v $$sec); \
+	root="$(PACKAGE)@$(VERSION)"; \
 	meta=$$(s 3 "$(PACKAGE)")$$(s 4 "$$ts")$$(s 5 "$$(s 1 automake)$$(s 2 "$(VERSION)")")$$(s 6 "$$(s 1 "$(PACKAGE)")$$(printf '\020\001')"); \
-	nl=$$(s 1 "$$(s 1 "$(PACKAGE)")$$(s 3 "$(PACKAGE)")$$(s 4 "$(VERSION)")"); \
-	for c in $(am__sbom_components); do \
-	  nl=$$nl$$(s 1 "$$(s 1 "$$c")$$(s 3 "$$c")$$(s 4 "$(VERSION)")"); \
-	  nl=$$nl$$(s 2 "$$(printf '\010\012'; s 2 "$(PACKAGE)"; s 3 "$$c")"); \
+	nl=$$(s 1 "$$(s 1 "$$root")$$(s 3 "$(PACKAGE)")$$(s 4 "$(VERSION)")"); \
+	for c in $$(printf '%s\n' $(am__sbom_components) | LC_ALL=C sort); do \
+	  nl=$$nl$$(s 1 "$$(s 1 "$$c")$$(s 3 "$$c")"); \
+	  nl=$$nl$$(s 2 "$$(printf '\010\012'; s 2 "$$root"; s 3 "$$c")"); \
 	done; \
+	nl=$$nl$$(s 3 "$$root"); \
 	{ s 1 "$$meta"; s 2 "$$nl"; } > sbom.protobom.bin
 
 all-am: $(AM_SBOM_TARGET)

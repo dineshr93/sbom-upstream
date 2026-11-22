@@ -4,7 +4,7 @@ PR: https://github.com/apache/maven/pull/14093 (open)
 
 Title: `Add opt-in SBOM generation (--sbom)`
 
-Branch: `sbom-support`, commit `280635bc`, 181 insertions across 6 files.
+Branch: `sbom-support`, commit `280635bc`, 221 insertions across 6 files.
 
 ---
 
@@ -20,14 +20,17 @@ no external plugin or scanner is needed.
   `MavenOptions`, the `Option` on the mvn-specific `CommonsCliMavenOptions`
   CLIManager (not the shared one, so a following goal is not swallowed), the
   accessor wired through `LayeredMavenOptions`.
-- `SbomReportWriter.java` (new, 94 LOC) runs after the build request completes
-  in `MavenInvoker`, unions `MavenProject.getArtifacts()` from
-  `MavenSession.getProjects()` — zero new resolution, `ProjectArtifactsCache`
-  already holds the set.
+- `SbomReportWriter.java` (new, 134 LOC) runs after the build request completes
+  in `MavenInvoker`, walks `MavenExecutionResult.getTopologicallySortedProjects()`
+  and emits the project node plus each resolved artifact as a dependency edge —
+  zero new resolution, `ProjectArtifactsCache` already holds the set.
 - Flag is no-arg; output path fixed to `<topDirectory>/sbom.json`.
-- Format: protobom JSON via a hand-rolled encoder. maven-core has zero
+- Format: protobom-style JSON via a hand-rolled encoder, with `nodeList.nodes`,
+  sorted `dependsOn` edges and `rootElements`. maven-core has zero
   protobuf dependency and adding `protobuf-java` for one report is the change
   most likely to be rejected.
+- `SOURCE_DATE_EPOCH` is honoured; an invalid value falls back to the current
+  timestamp instead of throwing.
 
 ## Alternatives considered
 

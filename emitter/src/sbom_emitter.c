@@ -110,24 +110,50 @@ static char *dup_or_null(const char *s) {
   return p;
 }
 
+static void free_node(node *n) {
+  if (!n) return;
+  free(n->id);
+  free(n->name);
+  free(n->version);
+  free(n->supplier);
+  free(n->license);
+  free(n->purl);
+  free(n->hash);
+  memset(n, 0, sizeof *n);
+}
+
+static int cmp_str(const char *a, const char *b) {
+  if (!a) a = "";
+  if (!b) b = "";
+  return strcmp(a, b);
+}
+
 static void set_err(sbom_emitter *e, const char *msg) {
   if (!e) return;
   snprintf(e->err, sizeof e->err, "%s", msg);
 }
 
-/* protobom HashAlgorithm enum values */
+/* protobom HashAlgorithm enum values. Return 0 for an unknown name. */
 static unsigned hash_alg_from_name(const char *name) {
   static const struct {
     const char *name;
     unsigned value;
   } map[] = {
-      {"md5", 1},       {"sha1", 2},      {"sha256", 3},   {"sha384", 4},
-      {"sha512", 5},    {"sha3-256", 6},  {"sha3_256", 6}, {"sha3-384", 7},
-      {"sha3_512", 8},  {"blake2b-256", 9}, {"blake3", 12},
+      {"md5", 1},         {"sha1", 2},        {"sha-1", 2},
+      {"sha256", 3},      {"sha-256", 3},     {"sha384", 4},
+      {"sha-384", 4},     {"sha512", 5},      {"sha-512", 5},
+      {"sha3-256", 6},    {"sha3_256", 6},    {"sha3-384", 7},
+      {"sha3_384", 7},    {"sha3-512", 8},    {"sha3_512", 8},
+      {"blake2b-256", 9}, {"blake2b_256", 9}, {"blake2b-384", 10},
+      {"blake2b_384", 10},{"blake2b-512", 11},{"blake2b_512", 11},
+      {"blake3", 12},     {"md2", 13},        {"adler32", 14},
+      {"md4", 15},        {"md6", 16},        {"sha224", 17},
+      {"sha-224", 17},    {"streebog-256", 18}, {"streebog_256", 18},
+      {"streebog-512", 19}, {"streebog_512", 19},
   };
   for (size_t i = 0; i < sizeof map / sizeof map[0]; i++)
     if (strcmp(map[i].name, name) == 0) return map[i].value;
-  return 3; /* sha256 */
+  return 0;
 }
 
 /* ---- message builders ---------------------------------------------------- */
@@ -210,7 +236,27 @@ static int build_edge(buf *out, const edge *e) {
 static int cmp_node(const void *a, const void *b) {
   const node *x = *(const node *const *)a;
   const node *y = *(const node *const *)b;
-  return strcmp(x->id, y->id);
+  int c = cmp_str(x->id, y->id);
+  if (c) return c;
+  c = cmp_str(x->name, y->name);
+  if (c) return c;
+  c = cmp_str(x->version, y->version);
+  if (c) return c;
+  c = cmp_str(x->supplier, y->supplier);
+  if (c) return c;
+  c = cmp_str(x->license, y->license);
+  if (c) return c;
+  c = cmp_str(x->purl, y->purl);
+  if (c) return c;
+  c = cmp_str(x->hash, y->hash);
+  if (c) return c;
+  if (x->hash_alg < y->hash_alg) return -1;
+  if (x->hash_alg > y->hash_alg) return 1;
+  return 0;
+}
+
+static int cmp_root(const void *a, const void *b) {
+  return cmp_str(*(const char *const *)a, *(const char *const *)b);
 }
 
 static int cmp_edge(const void *a, const void *b) {
@@ -255,6 +301,7 @@ static int build_document(const sbom_emitter *e, buf *out) {
     free(sorted_edges);
   }
 
+  if (e->nroots) qsort(e->roots, e->nroots, sizeof *e->roots, cmp_root);
   for (size_t i = 0; i < e->nroots; i++) rc |= pb_str(&nl, 3, e->roots[i]);
 
   if (rc) {
@@ -282,14 +329,7 @@ sbom_emitter *sbom_init(const char *tool_name, const char *tool_version) {
 void sbom_free(sbom_emitter *e) {
   if (!e) return;
   for (size_t i = 0; i < e->nnodes; i++) {
-    node *n = &e->nodes[i];
-    free(n->id);
-    free(n->name);
-    free(n->version);
-    free(n->supplier);
-    free(n->license);
-    free(n->purl);
-    free(n->hash);
+    free_node(&e->nodes[i]);
   }
   for (size_t i = 0; i < e->nedges; i++) {
     free(e->edges[i].from);
@@ -320,13 +360,12 @@ const char *sbom_add_node(sbom_emitter *e, const char *purl, const char *name,
     e->nodes = p;
     e->capnodes = cap;
   }
-  node *n = &e->nodes[e->nnodes];
-  memset(n, 0, sizeof *n);
-  n->purl = dup_or_null(purl);
-  n->name = dup_or_null(name);
-  n->version = dup_or_null(version);
-  n->supplier = dup_or_null(supplier);
-  n->license = dup_or_null(license);
+  node n = {0};
+  n.purl = dup_or_null(purl);
+  n.name = dup_or_null(name);
+  n.version = dup_or_null(version);
+  n.supplier = dup_or_null(supplier);
+  n.license = dup_or_null(license);
 
   if (hash && *hash) {
     const char *colon = strchr(hash, ':');
@@ -336,33 +375,52 @@ const char *sbom_add_node(sbom_emitter *e, const char *purl, const char *name,
       if (len >= sizeof alg) len = sizeof alg - 1;
       memcpy(alg, hash, len);
       alg[len] = '\0';
-      n->hash_alg = hash_alg_from_name(alg);
-      n->hash = dup_or_null(colon + 1);
+      n.hash_alg = hash_alg_from_name(alg);
+      if (!n.hash_alg) {
+        free_node(&n);
+        set_err(e, "unknown hash algorithm");
+        return NULL;
+      }
+      n.hash = dup_or_null(colon + 1);
     } else {
-      n->hash_alg = 3; /* sha256 */
-      n->hash = dup_or_null(hash);
+      n.hash_alg = 3; /* sha256 */
+      n.hash = dup_or_null(hash);
     }
   }
 
-  if (n->purl) {
-    n->id = dup_or_null(n->purl);
-  } else if (n->name && n->version) {
-    size_t len = strlen(n->name) + strlen(n->version) + 2;
-    n->id = malloc(len);
-    if (n->id) snprintf(n->id, len, "%s@%s", n->name, n->version);
+  if (n.purl) {
+    n.id = dup_or_null(n.purl);
+  } else if (n.name && n.version) {
+    size_t len = strlen(n.name) + strlen(n.version) + 2;
+    n.id = malloc(len);
+    if (n.id) snprintf(n.id, len, "%s@%s", n.name, n.version);
   } else {
-    n->id = dup_or_null(n->name);
+    n.id = dup_or_null(n.name);
   }
-  if (!n->id) {
+  if (!n.id) {
+    free_node(&n);
     set_err(e, "node needs a purl or a name");
     return NULL;
   }
+  e->nodes[e->nnodes] = n;
   e->nnodes++;
-  return n->id;
+  return n.id;
+}
+
+/* Returns 1 if id names an existing node. */
+static int node_exists(const sbom_emitter *e, const char *id) {
+  for (size_t i = 0; i < e->nnodes; i++) {
+    if (e->nodes[i].id && strcmp(e->nodes[i].id, id) == 0) return 1;
+  }
+  return 0;
 }
 
 int sbom_add_edge(sbom_emitter *e, const char *from, const char *to) {
-  if (!e || !from || !to) return -1;
+  if (!e || !from || !*from || !to || !*to) return -1;
+  if (!node_exists(e, from) || !node_exists(e, to)) {
+    set_err(e, "edge id not found");
+    return -1;
+  }
   if (e->nedges == e->capedges) {
     size_t cap = e->capedges ? e->capedges * 2 : 16;
     edge *p = realloc(e->edges, cap * sizeof *p);
@@ -373,18 +431,24 @@ int sbom_add_edge(sbom_emitter *e, const char *from, const char *to) {
     e->edges = p;
     e->capedges = cap;
   }
-  e->edges[e->nedges].from = dup_or_null(from);
-  e->edges[e->nedges].to = dup_or_null(to);
-  if (!e->edges[e->nedges].from || !e->edges[e->nedges].to) {
+  edge edge = {dup_or_null(from), dup_or_null(to)};
+  if (!edge.from || !edge.to) {
+    free(edge.from);
+    free(edge.to);
     set_err(e, "out of memory");
     return -1;
   }
+  e->edges[e->nedges] = edge;
   e->nedges++;
   return 0;
 }
 
 int sbom_set_root(sbom_emitter *e, const char *id) {
   if (!e || !id || !*id) return -1;
+  if (!node_exists(e, id)) {
+    set_err(e, "root id not found");
+    return -1;
+  }
   if (e->nroots == e->caproots) {
     size_t cap = e->caproots ? e->caproots * 2 : 4;
     char **p = realloc(e->roots, cap * sizeof *p);
@@ -395,11 +459,12 @@ int sbom_set_root(sbom_emitter *e, const char *id) {
     e->roots = p;
     e->caproots = cap;
   }
-  e->roots[e->nroots] = dup_or_null(id);
-  if (!e->roots[e->nroots]) {
+  char *copy = dup_or_null(id);
+  if (!copy) {
     set_err(e, "out of memory");
     return -1;
   }
+  e->roots[e->nroots] = copy;
   e->nroots++;
   return 0;
 }

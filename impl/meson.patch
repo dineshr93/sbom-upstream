@@ -7,9 +7,9 @@ Subject: [PATCH] Add --sbom to write a protobom SBOM at configure time
  docs/markdown/Commands.md      |   8 ++
  docs/markdown/snippets/sbom.md |  10 +++
  mesonbuild/msetup.py           |   8 +-
- mesonbuild/sbom.py             | 145 +++++++++++++++++++++++++++++++++
- unittests/sbomtests.py         |  68 ++++++++++++++++
- 5 files changed, 238 insertions(+), 1 deletion(-)
+ mesonbuild/sbom.py             | 150 +++++++++++++++++++++++++++++++++
+ unittests/sbomtests.py         |  73 ++++++++++++++++
+ 5 files changed, 243 insertions(+), 1 deletion(-)
  create mode 100644 docs/markdown/snippets/sbom.md
  create mode 100644 mesonbuild/sbom.py
  create mode 100644 unittests/sbomtests.py
@@ -94,7 +94,7 @@ new file mode 100644
 index 0000000..d3dd210
 --- /dev/null
 +++ b/mesonbuild/sbom.py
-@@ -0,0 +1,145 @@
+@@ -0,0 +1,150 @@
 +# SPDX-License-Identifier: Apache-2.0
 +# Copyright 2026 The Meson development team
 +
@@ -173,14 +173,19 @@ index 0000000..d3dd210
 +                    for k in sorted(items))
 +
 +
-+def _purl(name: str, version: str) -> T.Optional[str]:
++def _purl(name: str, version: T.Optional[str]) -> T.Optional[str]:
 +    if not version or version == 'unknown':
 +        return None
 +    # ponytail: no percent-encoding; Meson target names are path-safe.
 +    return f'pkg:generic/{name}@{version}'
 +
 +
-+def _node(nid: str, name: str, version: str, purl: T.Optional[str]) -> bytes:
++def _dependency_id(name: str, version: T.Optional[str]) -> str:
++    purl = _purl(name, version)
++    return purl or (f'{name}@{version}' if version and version != 'unknown' else name)
++
++
++def _node(nid: str, name: str, version: T.Optional[str], purl: T.Optional[str]) -> bytes:
 +    parts = [_str(_NODE_ID, nid), _str(_NODE_NAME, name)]
 +    if version and version != 'unknown':
 +        parts.append(_str(_NODE_VERSION, version))
@@ -215,7 +220,7 @@ index 0000000..d3dd210
 +            dname = dep.get_name()
 +            dver = dep.get_version()
 +            dpurl = _purl(dname, dver)
-+            did = dpurl or (f'{dname}@{dver}' if dver != 'unknown' else dname)
++            did = _dependency_id(dname, dver)
 +            if did not in nodes:
 +                nodes[did] = _node(did, dname, dver, dpurl)
 +            edges.add((nid, did))
@@ -245,7 +250,7 @@ new file mode 100644
 index 0000000..070aa2e
 --- /dev/null
 +++ b/unittests/sbomtests.py
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,73 @@
 +# SPDX-License-Identifier: Apache-2.0
 +# Copyright 2026 The Meson development team
 +
@@ -273,6 +278,11 @@ index 0000000..070aa2e
 +            sbom._node('pkg:generic/app@1.0', 'app', '1.0', 'pkg:generic/app@1.0'),
 +        ])
 +        self.assertEqual(doc.hex(), GOLDEN)
++
++    def test_external_dep_without_version(self):
++        self.assertEqual(sbom._purl('foo', None), None)
++        self.assertEqual(sbom._dependency_id('foo', None), 'foo')
++        self.assertEqual(sbom._dependency_id('foo', '1.0'), 'pkg:generic/foo@1.0')
 +
 +
 +class SbomSetupTests(BasePlatformTests):

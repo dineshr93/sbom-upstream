@@ -4,7 +4,7 @@ PR: https://github.com/bazelbuild/bazel/pull/32863 (open)
 
 Title: `Add opt-in SBOM generation (--sbom_output)`
 
-Branch: `sbom-support`, commit `764e327`, 459 insertions across 8 files.
+Branch: `sbom-support`, commit `764e327`, 457 insertions across 8 files.
 
 ---
 
@@ -28,7 +28,7 @@ unnecessary.
 - Version comes from `ModuleKey.version()` via `BazelDepGraphValue`; targets
   outside a bzlmod module omit version/purl rather than fabricate one.
 - Node id = canonical label form; edges are `dependsOn` (type 10); nodes
-  sorted by id, edges by `(from, to)`.
+  sorted by id, edges by `(from, to)`, roots sorted by id.
 
 ## Alternatives considered
 

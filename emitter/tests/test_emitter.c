@@ -42,9 +42,20 @@ int main(int argc, char **argv) {
   assert(app && zlib && ssl);
   assert(strcmp(ssl, "openssl@3.0.0") == 0);
 
+  assert(sbom_add_node(e, NULL, "bad", "1", NULL, NULL, "sha999:abc") == NULL);
+  assert(strcmp(sbom_last_error(e), "unknown hash algorithm") == 0);
+
+  const char *hashed = sbom_add_node(e, "pkg:generic/x@2", "x", "2", NULL, NULL, "blake2b-512:abcd");
+  assert(hashed);
+  const char *app2 = sbom_add_node(e, "pkg:generic/app@1.0", "app2", "1.0", "ACME2", "MIT", NULL);
+  assert(app2 && strcmp(app2, app) == 0);
+
   assert(sbom_add_edge(e, app, zlib) == 0);
   assert(sbom_add_edge(e, zlib, ssl) == 0);
+  assert(sbom_add_edge(e, "missing", app) == -1);
   assert(sbom_set_root(e, app) == 0);
+  assert(sbom_set_root(e, hashed) == 0);
+  assert(sbom_set_root(e, "missing") == -1);
 
   assert(sbom_write(e, out) == 0);
   assert(sbom_write(e, out2) == 0);

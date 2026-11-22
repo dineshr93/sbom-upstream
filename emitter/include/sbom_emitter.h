@@ -31,17 +31,18 @@ sbom_emitter *sbom_init(const char *tool_name, const char *tool_version);
 void sbom_free(sbom_emitter *e);
 
 /* Add a component. Any argument may be NULL or "" to omit that field; nothing
- * is fabricated. `hash` is "sha256:<hex>" or a bare hex string (assumed
- * sha256). Returns the node id (purl when given, else name@version, else name),
- * owned by the emitter and valid until sbom_free(). NULL on error. */
+ * is fabricated. `hash` is "<alg>:<hex>" for a protobom HashAlgorithm name, or
+ * a bare hex string (assumed sha256). Unknown algorithms are rejected. Returns
+ * the node id (purl when given, else name@version, else name), owned by the
+ * emitter and valid until sbom_free(). NULL on error. */
 const char *sbom_add_node(sbom_emitter *e, const char *purl, const char *name,
                           const char *version, const char *supplier,
                           const char *license, const char *hash);
 
-/* Add a dependsOn edge. Both ids must have been returned by sbom_add_node. */
+/* Add a dependsOn edge. Both ids must name nodes added by sbom_add_node. */
 int sbom_add_edge(sbom_emitter *e, const char *from, const char *to);
 
-/* Mark a node as a root element of the graph. */
+/* Mark an existing node as a root element of the graph. */
 int sbom_set_root(sbom_emitter *e, const char *id);
 
 /* Optional document author (person or organisation). */
@@ -52,8 +53,8 @@ int sbom_set_author(sbom_emitter *e, const char *name, const char *email,
  * set, else time(NULL). Pin it for reproducible builds. */
 int sbom_set_timestamp(sbom_emitter *e, int64_t unix_seconds);
 
-/* Serialise to `path`. Nodes and edges are sorted by id, so identical input
- * yields byte-identical output. Returns 0 on success, -1 on error. */
+/* Serialise to `path`. Nodes, edges and root elements are sorted, so identical
+ * input yields byte-identical output. Returns 0 on success, -1 on error. */
 int sbom_write(sbom_emitter *e, const char *path);
 
 /* Last error message, or "" when none. */

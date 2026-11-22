@@ -39,8 +39,11 @@ sbom_free(e);
 Every argument may be `NULL` or `""` to omit a field. Nothing is fabricated: if
 the build system cannot supply a value, the field is absent from the document.
 
-`hash` accepts `"<alg>:<hex>"` (`sha256`, `sha1`, `sha512`, `md5`, `sha384`,
-`sha3-256`, `blake3`, ...) or a bare hex string, assumed sha256.
+`hash` accepts `"<alg>:<hex>"` for any protobom `HashAlgorithm` name
+(`md5`, `sha1`, `sha256`, `sha384`, `sha512`, `sha3-256`, `sha3-384`,
+`sha3-512`, `blake2b-256`, `blake2b-384`, `blake2b-512`, `blake3`, `md2`,
+`adler32`, `md4`, `md6`, `sha224`, `streebog-256`, `streebog-512`) or a bare
+hex string, assumed sha256. Unknown algorithms are rejected, not relabelled.
 
 ## NTIA minimum elements
 
@@ -56,10 +59,10 @@ the build system cannot supply a value, the field is absent from the document.
 
 ## Determinism
 
-Nodes are sorted by id and edges by `(from, to)` before serialisation, so the
-same input yields byte-identical output. Pin the timestamp with
-`sbom_set_timestamp` or `SOURCE_DATE_EPOCH` to make the whole document
-reproducible.
+Nodes are sorted by id (ties by name/version/fields), edges by `(from, to)`,
+and root elements by id before serialisation, so the same input yields
+byte-identical output. Pin the timestamp with `sbom_set_timestamp` or
+`SOURCE_DATE_EPOCH` to make the whole document reproducible.
 
 ## Bindings
 

@@ -32,15 +32,17 @@ Wire format: Document{metadata=1,node_list=2}, Metadata{name=3,
 date=4,tools=5,authors=6}, Timestamp{seconds=1}, Tool{name=1,
 version=2}, NodeList{nodes=1,edges=2,root_elements=3}, Node{id=1,
 name=3,version=4}, Edge{type=1,from=2,to=3}, type 10=dependsOn.
-Root node is $(PACKAGE)@$(VERSION) (distdir.am precedent); one
-dependsOn edge per component; sorted by name; timestamp honours
-SOURCE_DATE_EPOCH.
+Root node is $(PACKAGE)@$(VERSION) (distdir.am precedent); component
+nodes carry name only (their version is not fabricated from $(VERSION));
+one dependsOn edge per component; root_elements names the root; sorted
+by name; timestamp honours SOURCE_DATE_EPOCH.
 
 Testing: ran automake on a small package, 'make sbom' produced a
-97-byte file that 'protoc --decode=protobom.protobom.Document' parses
-cleanly (metadata, two nodes, one edge). The sbom target exists in
-every Makefile (like tags); --enable-sbom only gates whether all-am
-depends on it, which keeps the gating logic out of automake.in.
+protobom file that 'protoc --decode=protobom.protobom.Document' parses
+cleanly (metadata, root node $(PACKAGE)@$(VERSION), component nodes,
+dependsOn edges, root_elements). The sbom target exists in every
+Makefile (like tags); --enable-sbom only gates whether all-am depends
+on it, which keeps the gating logic out of automake.in.
 
 Documented gaps, omitted rather than fabricated: purl (no standard
 purl type for autotools packages), hash, license, supplier (no data

@@ -2,7 +2,7 @@
 
 PR: https://github.com/gradle/gradle/pull/39928 (open)
 
-Title: `Add opt-in SBOM generation (generateSbom task)`
+Title: `Add opt-in SBOM generation (sbom task)`
 
 Branch: `sbom-support`, commit `04bf0537`, 356 insertions across 5 files.
 
@@ -11,25 +11,26 @@ Branch: `sbom-support`, commit `04bf0537`, 356 insertions across 5 files.
 ## Motivation
 
 Regulations (NTIA minimum elements, EO 14028, EU CRA) require an SBOM. Gradle
-already resolves the full dependency graph; the `generateSbom` task emits it as
-a protobom document so downstream tooling needs no plugin or scanner.
+already resolves the full dependency graph; the `sbom` task emits it as a
+protobom-style JSON document so downstream tooling needs no plugin or scanner.
 
 ## Design
 
 - `SbomReportTask.java` (new, 250 LOC) sits next to `DependencyReportTask` in
-  `software-diagnostics` and contains a hand-rolled proto3 wire encoder
-  (varint + length-delimited only) — Gradle has no protobuf runtime anywhere,
-  and adding `protobuf-java` to the distribution for an opt-in task would
-  violate "zero new mandatory runtime deps".
+  `software-diagnostics` and contains a hand-rolled JSON writer. Gradle has no
+  protobuf runtime, and adding `protobuf-java` to the distribution for an
+  opt-in task would violate "zero new mandatory runtime deps".
 - Registered by `SoftwareReportingTasksPlugin`, which is auto-applied to every
   project — the task is built-in, no plugin to apply, registered lazily so an
   unrelated build pays nothing.
-- Default scope: every resolvable, non-deprecated configuration, reusing the
-  exact filter `ConfigurationDetails.of()` applies; `--configuration` reuses
-  `AbstractDependencyReportTask`'s `ConfigurationFinder` pattern.
-- Data: `ResolutionResult.getAllDependencies()` → `ResolvedDependencyResult`;
-  node id = `ComponentIdentifier.getDisplayName()`; purl synthesized as
-  `pkg:maven/<group>/<module>@<version>` only where all three parts exist.
+- Default scope: `runtimeClasspath`; `--configuration` reuses
+  `ConfigurationFinder.find` to select one configuration.
+- Data: `configurations.getIncoming().getResolutionResult().getRootComponent()`
+  plus its `ResolvedDependencyResult`s; node id = `ComponentIdentifier.getDisplayName()`;
+  purl synthesized as `pkg:maven/<group>/<module>@<version>` only where all
+  three parts exist.
+- Deterministic: nodes and edges are `TreeMap`/`TreeSet`, roots are emitted in
+  sorted order.
 
 ## Alternatives considered
 
@@ -42,11 +43,13 @@ a protobom document so downstream tooling needs no plugin or scanner.
 
 ## Test plan
 
-- `SbomReportTaskIntegrationTest.groovy`: project with a `mavenLocal()`
-  dependency, `gradle generateSbom`, asserts the file exists, is non-empty,
-  and contains the dependency's display name and the `Gradle` tool entry.
-- Determinism: two runs with `SOURCE_DATE_EPOCH=1700000000` are byte-identical.
-- `--configuration` restricts the document.
+- `SbomReportTaskIntegrationTest.groovy`: publishes `org:leaf2:1.0` via the test
+  maven repo, runs `gradle sbom`, asserts the JSON file exists and contains the
+  dependency purl, `dependsOn` edges, and `root project` root element.
+- `--configuration` selects `annotationProcessor` and excludes the runtime
+  dependency.
+- Custom output path and configuration list are exercised.
+- Determinism: nodes and edges use sorted maps; roots are emitted sorted.
 
 ## Backwards compatibility
 
