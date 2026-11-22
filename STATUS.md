@@ -16,3 +16,7 @@ so the next PR preempts them.
 
 Stages: queued → recon → design → approved → implemented → pr-drafted → pr-open
 → merged / rejected / skipped (already has SBOM support).
+
+Verification: Maven Docker compile + targeted tests pass (3/3); Gradle Docker
+`embeddedIntegTest` for `SbomReportTaskIntegrationTest` passes; Bazel Docker
+`//src/main/java/com/google/devtools/build/lib/bazel/sbom:sbom` builds.

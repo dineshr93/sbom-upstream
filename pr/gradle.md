@@ -50,6 +50,7 @@ protobom-style JSON document so downstream tooling needs no plugin or scanner.
   dependency.
 - Custom output path and configuration list are exercised.
 - Determinism: nodes and edges use sorted maps; roots are emitted sorted.
+- Docker `gradle:9.9.1-jdk21`: `./gradlew :software-diagnostics:embeddedIntegTest --tests org.gradle.api.tasks.diagnostics.SbomReportTaskIntegrationTest` passes.
 
 ## Backwards compatibility
 

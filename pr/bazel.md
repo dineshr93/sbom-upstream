@@ -50,6 +50,9 @@ unnecessary.
 - Off by default: `bazel build` without the flag writes no file.
 - Schema conformance verified out of band with
   `protoc --decode=protobom.protobom.Document`; emitted bytes decode cleanly.
+- Docker `gcr.io/bazel-public/bazel:9.3.3`:
+  `bazel build //src/main/java/com/google/devtools/build/lib/bazel/sbom:sbom`
+  passes.
 
 ## Backwards compatibility
 
