@@ -1,14 +1,14 @@
-From fc81e18 Mon Sep 17 00:00:00 2001
+From 2b36806 Mon Sep 17 00:00:00 2001
 From: dineshr93 <dineshr93@gmail.com>
-Date: Sun, 22 Nov 2026 12:30:00 +0100
-Subject: [PATCH] Add --sbom option to write a protobom-style SBOM report after the build
+Date: Sun, 22 Nov 2026 12:42:00 +0100
+Subject: [PATCH] Add --sbom option to write a CycloneDX 1.6 SBOM report after the build
 
 ---
 diff --git a/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java b/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
-index 6cbce22d..05bd0e48 100644
+index 6cbce22d..c26c92c5 100644
 --- a/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
 +++ b/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
-@@ -253,4 +253,17 @@ public interface MavenOptions extends Options {
+@@ -253,4 +253,18 @@ public interface MavenOptions extends Options {
       */
      @Nonnull
      Optional<Boolean> listAliases();
@@ -16,11 +16,12 @@ index 6cbce22d..05bd0e48 100644
 +    /**
 +     * Indicates that an SBOM report should be written after the build completes.
 +     * The report is written to {@code sbom.json} in the top-level project directory.
-+     * The report lists the resolved dependencies of every built project as protobom-style
-+     * components; supplier, license and hash are omitted as Maven does not retain them
-+     * in the resolved artifact set.
++     * The report lists the resolved dependencies of every built project as CycloneDX
++     * 1.6 components; supplier, license and hash are omitted as Maven does not retain
++     * them in the resolved artifact set.
 +     *
-+     * @return an {@link Optional} containing the report file name, or empty if not specified
++     * @return an {@link Optional} containing the report path relative to the top-level
++     *     project directory, or empty if {@code --sbom} was not passed
 +     * @since 4.2.0
 +     */
 +    @Nonnull
@@ -81,7 +82,7 @@ index 51fef1b8..31d1be05 100644
      public MavenOptions interpolate(UnaryOperator<String> callback) {
          ArrayList<MavenOptions> interpolatedOptions = new ArrayList<>(options.size());
 diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java
-index 929386aa..14f3462d 100644
+index 929386aa..c1839802 100644
 --- a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java
 +++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java
 @@ -19,6 +19,7 @@
@@ -92,27 +93,29 @@ index 929386aa..14f3462d 100644
  import java.nio.file.Files;
  import java.nio.file.Path;
  import java.util.ArrayList;
-@@ -570,6 +571,14 @@ protected int doExecute(MavenContext context, MavenExecutionRequest request) thr
+@@ -570,6 +571,16 @@ protected int doExecute(MavenContext context, MavenExecutionRequest request) thr
              context.eventSpyDispatcher.close();
          }
  
-+        context.options().sbomFile().ifPresent(file -> {
-+            try {
-+                SbomReportWriter.write(request.getTopDirectory().resolve(file), result);
-+            } catch (IOException e) {
-+                context.logger.warn("Failed to write SBOM report: " + e.getMessage());
-+            }
-+        });
++        if (!result.hasExceptions()) {
++            context.options().sbomFile().ifPresent(file -> {
++                try {
++                    SbomReportWriter.write(request.getTopDirectory().resolve(file), result);
++                } catch (IOException e) {
++                    context.logger.warn("Failed to write SBOM report: " + e.getMessage());
++                }
++            });
++        }
 +
          if (result.hasExceptions()) {
              ExceptionHandler handler = new DefaultExceptionHandler();
              boolean hasDetailedHelp = false;
 diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
 new file mode 100644
-index 00000000..e3737bc7
+index 00000000..4c6091f6
 --- /dev/null
 +++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,148 @@
 +/*
 + * Licensed to the Apache Software Foundation (ASF) under one
 + * or more contributor license agreements.  See the NOTICE file
@@ -148,78 +151,79 @@ index 00000000..e3737bc7
 +import org.apache.maven.project.MavenProject;
 +
 +/**
-+ * Writes an SBOM report in a protobom-style JSON document from the resolved
-+ * artifacts of the build. Hand-rolled encoder: maven-cli has no JSON library
-+ * dependency, and adding one for a single report is not justified.
++ * Writes a CycloneDX 1.6 JSON SBOM from the resolved artifacts of the build.
++ * Hand-rolled encoder: maven-cli has no JSON library dependency, and adding one
++ * for a single report is not justified.
 + *
 + * <p>Only fields Maven actually retains in the resolved artifact set are emitted:
-+ * node id/name/version and a synthesised purl, plus dependency edges and root
-+ * elements. Supplier, license and hash are omitted, never fabricated. Nodes,
-+ * edges and roots are sorted and the timestamp honours {@code SOURCE_DATE_EPOCH},
-+ * so the output is deterministic.</p>
++ * component group/name/version and a synthesised purl, plus dependency edges.
++ * Supplier, license and hash are omitted, never fabricated. Components and edges
++ * are sorted and the timestamp honours {@code SOURCE_DATE_EPOCH}, so the output
++ * is deterministic.</p>
 + */
 +final class SbomReportWriter {
 +    private SbomReportWriter() {}
 +
 +    static void write(Path file, MavenExecutionResult result) throws IOException {
-+        Map<String, String[]> nodes = new TreeMap<>();
-+        Map<String, Set<String>> edges = new TreeMap<>();
-+        Set<String> roots = new TreeSet<>();
++        Map<String, String[]> components = new TreeMap<>();
++        Map<String, Set<String>> dependencies = new TreeMap<>();
 +        for (MavenProject project : result.getTopologicallySortedProjects()) {
 +            String rootPurl = purl(project.getGroupId(), project.getArtifactId(), project.getVersion());
 +            if (rootPurl == null) {
 +                continue;
 +            }
-+            nodes.put(rootPurl, new String[] {project.getArtifactId(), project.getVersion(), rootPurl});
-+            roots.add(rootPurl);
++            components.put(
++                    rootPurl,
++                    new String[] {project.getGroupId(), project.getArtifactId(), project.getVersion(), rootPurl});
 +            for (Artifact artifact : project.getArtifacts()) {
 +                String depPurl = purl(artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion());
 +                if (depPurl == null || depPurl.equals(rootPurl)) {
 +                    continue;
 +                }
-+                nodes.put(depPurl, new String[] {artifact.getArtifactId(), artifact.getVersion(), depPurl});
-+                edges.computeIfAbsent(rootPurl, k -> new TreeSet<>()).add(depPurl);
++                components.put(
++                        depPurl,
++                        new String[] {artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(), depPurl});
++                dependencies.computeIfAbsent(rootPurl, k -> new TreeSet<>()).add(depPurl);
 +            }
 +        }
 +
 +        StringBuilder sb = new StringBuilder();
 +        sb.append("{\n");
-+        sb.append("  \"sbomFormat\": \"protobom-json\",\n");
++        sb.append("  \"bomFormat\": \"CycloneDX\",\n");
++        sb.append("  \"specVersion\": \"1.6\",\n");
++        sb.append("  \"version\": 1,\n");
 +        sb.append("  \"metadata\": {\n");
-+        sb.append("    \"authors\": [\"Apache Maven\"],\n");
-+        sb.append("    \"tools\": [\"mvn\"],\n");
-+        sb.append("    \"date\": \"").append(timestamp()).append("\"\n");
++        sb.append("    \"timestamp\": \"").append(timestamp()).append("\",\n");
++        sb.append("    \"tools\": [{\"name\": \"mvn\"}],\n");
++        sb.append("    \"authors\": [{\"name\": \"Apache Maven\"}]\n");
 +        sb.append("  },\n");
-+        sb.append("  \"nodeList\": {\n");
-+        sb.append("    \"nodes\": [\n");
++        sb.append("  \"components\": [\n");
 +        int i = 0;
-+        for (String[] c : nodes.values()) {
-+            sb.append("      {\"id\": \"").append(escape(c[2]))
-+                    .append("\", \"name\": \"").append(escape(c[0]))
-+                    .append("\", \"version\": \"").append(escape(c[1])).append("\"}");
-+            sb.append(++i < nodes.size() ? ",\n" : "\n");
++        for (String[] c : components.values()) {
++            sb.append("    {\"type\": \"library\", \"group\": \"")
++                    .append(escape(c[0]))
++                    .append("\", \"name\": \"")
++                    .append(escape(c[1]))
++                    .append("\", \"version\": \"")
++                    .append(escape(c[2]))
++                    .append("\", \"purl\": \"")
++                    .append(escape(c[3]))
++                    .append("\"}");
++            sb.append(++i < components.size() ? ",\n" : "\n");
 +        }
-+        sb.append("    ],\n");
-+        sb.append("    \"edges\": [\n");
++        sb.append("  ],\n");
++        sb.append("  \"dependencies\": [\n");
 +        int e = 0;
-+        for (Map.Entry<String, Set<String>> edge : edges.entrySet()) {
-+            sb.append("      {\"type\": \"dependsOn\", \"from\": \"").append(escape(edge.getKey())).append("\", \"to\": [");
++        for (Map.Entry<String, Set<String>> edge : dependencies.entrySet()) {
++            sb.append("    {\"ref\": \"").append(escape(edge.getKey())).append("\", \"dependsOn\": [");
 +            int t = 0;
 +            for (String to : edge.getValue()) {
 +                sb.append(t++ > 0 ? ", " : "").append("\"").append(escape(to)).append("\"");
 +            }
 +            sb.append("]}");
-+            sb.append(++e < edges.size() ? ",\n" : "\n");
++            sb.append(++e < dependencies.size() ? ",\n" : "\n");
 +        }
-+        sb.append("    ],\n");
-+        sb.append("    \"rootElements\": [\n");
-+        int r = 0;
-+        for (String root : roots) {
-+            sb.append("      \"").append(escape(root)).append("\"");
-+            sb.append(++r < roots.size() ? ",\n" : "\n");
-+        }
-+        sb.append("    ]\n");
-+        sb.append("  }\n");
++        sb.append("  ]\n");
 +        sb.append("}\n");
 +        Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
 +    }
@@ -244,7 +248,20 @@ index 00000000..e3737bc7
 +    }
 +
 +    private static String escape(String value) {
-+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
++        StringBuilder out = new StringBuilder(value.length());
++        for (int i = 0; i < value.length(); i++) {
++            char c = value.charAt(i);
++            if (c == '\\') {
++                out.append("\\\\");
++            } else if (c == '"') {
++                out.append("\\\"");
++            } else if (c < 0x20) {
++                out.append(String.format("\\u%04x", (int) c));
++            } else {
++                out.append(c);
++            }
++        }
++        return out.toString();
 +    }
 +}
 diff --git a/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java b/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java
@@ -298,5 +315,76 @@ index 00000000..81a8ebd8
 +        CommonsCliMavenOptions options = CommonsCliMavenOptions.parse("test", new String[] {"package"});
 +
 +        assertTrue(options.sbomFile().isEmpty(), "sbomFile must be empty without the flag");
++    }
++}
+diff --git a/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/SbomReportWriterTest.java b/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/SbomReportWriterTest.java
+new file mode 100644
+index 00000000..78a05d67
+--- /dev/null
++++ b/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/SbomReportWriterTest.java
+@@ -0,0 +1,65 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++package org.apache.maven.cling.invoker.mvn;
++
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Set;
++
++import org.apache.maven.artifact.Artifact;
++import org.apache.maven.artifact.DefaultArtifact;
++import org.apache.maven.artifact.handler.DefaultArtifactHandler;
++import org.apache.maven.execution.DefaultMavenExecutionResult;
++import org.apache.maven.project.MavenProject;
++import org.junit.jupiter.api.Test;
++
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++class SbomReportWriterTest {
++
++    @Test
++    void writesCycloneDxWithGroupsAndDependencies() throws Exception {
++        MavenProject project = new MavenProject();
++        project.setGroupId("com.example");
++        project.setArtifactId("app");
++        project.setVersion("1.0");
++
++        Set<Artifact> artifacts = new LinkedHashSet<>();
++        artifacts.add(new DefaultArtifact(
++                "org.example", "lib", "2.0", "compile", "jar", null, new DefaultArtifactHandler("jar")));
++        project.setArtifacts(artifacts);
++
++        DefaultMavenExecutionResult result = new DefaultMavenExecutionResult();
++        result.setTopologicallySortedProjects(List.of(project));
++
++        Path file = Files.createTempFile("sbom", ".json");
++        SbomReportWriter.write(file, result);
++        String json = Files.readString(file);
++
++        assertTrue(json.contains("\"bomFormat\": \"CycloneDX\""), "must be CycloneDX JSON");
++        assertTrue(json.contains("\"group\": \"org.example\""), "group must be emitted");
++        assertTrue(json.contains("\"name\": \"lib\""), "artifact name must be emitted");
++        assertTrue(json.contains("\"ref\": \"pkg:maven/com.example/app@1.0\""), "root ref must be emitted");
++        assertTrue(json.contains("\"dependsOn\": [\"pkg:maven/org.example/lib@2.0\"]"), "edge must be emitted");
++
++        Files.delete(file);
 +    }
 +}
