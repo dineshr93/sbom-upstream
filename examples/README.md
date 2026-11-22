@@ -31,16 +31,30 @@ The patched implementations do not expose a `--format` switch. Each one writes t
 
 For a format a patched tool does not emit, convert the generated SBOM with an external SPDX/CycloneDX converter or add a serializer to that tool. Do not parse the protobom binary as JSON.
 
-## Install and use sbom-convert
+## Install and use protobom-convert
 
-Install [sbom-convert](https://github.com/protobom/sbom-convert/releases) from its release assets. It converts SPDX or CycloneDX JSON, not protobom `.bin` files.
-
-Use it after producing JSON:
+Install [protobom-convert](https://github.com/dineshr93/protobom-convert/releases) from its release assets, or run:
 
 ```sh
-sbom-convert convert sbom.spdx.json -f cyclonedx-1.6 -o sbom.cdx.json
-sbom-convert convert sbom.cdx.json -f spdx-2.3 -o sbom.spdx.json
+go install github.com/dineshr93/protobom-convert@latest
 ```
+
+It reads protobom `.bin`, SPDX, and CycloneDX documents and writes SPDX, CycloneDX, or protobom output.
+
+Convert the protobom sample:
+
+```sh
+protobom-convert -output-format spdx-2.3-json -o sbom.spdx.json examples/go/sbom.protobom.bin
+protobom-convert -output-format cyclonedx-1.6 -o sbom.cdx.json examples/go/sbom.protobom.bin
+```
+
+Convert between SPDX and CycloneDX:
+
+```sh
+protobom-convert -input-format cyclonedx-1.6 -output-format spdx-2.3-json -o sbom.spdx.json sbom.cdx.json
+protobom-convert -input-format spdx-2.3-json -output-format cyclonedx-1.6 -o sbom.cdx.json sbom.spdx.json
+```
+
 
 <details>
 <summary>Convert protobom to SPDX or CycloneDX</summary>
