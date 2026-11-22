@@ -1,0 +1,11 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    maven { url = uri('repo') }
+}
+
+dependencies {
+    implementation 'org.example:leaf2:1.0'
+}

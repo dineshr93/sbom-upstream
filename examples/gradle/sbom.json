@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "name": "Gradle",
+    "date": "2023-11-14T22:13:20Z",
+    "tools": [
+      {
+        "name": "Gradle",
+        "version": "9.10.0-20261122000000+0000"
+      }
+    ],
+    "authors": [
+      {
+        "name": "Gradle",
+        "isOrg": true
+      }
+    ]
+  },
+  "nodeList": {
+    "nodes": [
+      {
+        "id": "org.example:leaf1:1.0",
+        "name": "leaf1",
+        "version": "1.0",
+        "identifiers": {
+          "PURL": "pkg:maven/org.example/leaf1@1.0"
+        }
+      },
+      {
+        "id": "org.example:leaf2:1.0",
+        "name": "leaf2",
+        "version": "1.0",
+        "identifiers": {
+          "PURL": "pkg:maven/org.example/leaf2@1.0"
+        }
+      },
+      {
+        "id": "root project 'sbom-demo'",
+        "name": "root project 'sbom-demo'"
+      }
+    ],
+    "edges": [
+      {
+        "type": "dependsOn",
+        "from": "org.example:leaf2:1.0",
+        "to": [
+          "org.example:leaf1:1.0"
+        ]
+      },
+      {
+        "type": "dependsOn",
+        "from": "root project 'sbom-demo'",
+        "to": [
+          "org.example:leaf2:1.0"
+        ]
+      }
+    ],
+    "rootElements": [
+      "root project 'sbom-demo'"
+    ]
+  }
+}
