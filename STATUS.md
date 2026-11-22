@@ -17,6 +17,25 @@ so the next PR preempts them.
 Stages: queued → recon → design → approved → implemented → pr-drafted → pr-open
 → merged / rejected / skipped (already has SBOM support).
 
+## PR inventory
+
+Open PRs:
+
+- meson [#16374](https://github.com/mesonbuild/meson/pull/16374) — `--sbom`, protobom binary
+- bazel [#32863](https://github.com/bazelbuild/bazel/pull/32863) — `--sbom_output`, protobom binary
+- gradle [#39928](https://github.com/gradle/gradle/pull/39928) — `sbom` task, JSON encoder
+- maven [#14093](https://github.com/apache/maven/pull/14093) — `--sbom`, CycloneDX 1.6 JSON
+
+Drafted, not raised:
+
+- go — Gerrit change in `pr/go.md`; raising needs a Gerrit account with CLA.
+- autotools — Savannah cover letter in `pr/autotools.md`; raising needs an MTA or Savannah account.
+
+Skipped, no PR:
+
+- cmake — already ships first-class SBOM generation: `install(SBOM ...)`, `export(SBOM ...)`, and `CMAKE_INSTALL_SBOM_FORMATS` produce SPDX 3.0 JSON from install/build export sets. The `cmSbomSerializer` interface already abstracts formats, so protobom output is a serializer follow-up, not a new feature. Remaining gaps are format plus supplier, hash, purl, and per-target license. See `recon/cmake.md`.
+- cargo — already ships SBOM generation behind unstable `-Zsbom` / `build.sbom`, writing `<unit>.cargo-sbom.json` from the BuildRunner unit graph. The schema is a documented cargo-sbom precursor for external tools, not SPDX/CycloneDX/protobom; it lacks supplier, license, hash, and timestamp. `Resolve::checksums()` and `Manifest::license` could feed a protobom follow-up. Maintainers scope the in-tree format as a precursor for external converters. See `recon/cargo.md`.
+
 Verification: Maven Docker compile + targeted tests pass (3/3); Gradle Docker
 `embeddedIntegTest` for `SbomReportTaskIntegrationTest` passes; Bazel Docker
 build target and `sbom_test` shell integration test pass.
