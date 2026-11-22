@@ -1,0 +1,276 @@
+From 280635bc1a1f91ec04fd4e0bdeade8525a373f79 Mon Sep 17 00:00:00 2001
+From: dineshr93 <dineshr93@gmail.com>
+Date: Sun, 22 Nov 2026 08:50:43 +0100
+Subject: [PATCH] Add --sbom option to write a protobom-style SBOM report after
+ the build
+
+---
+ .../maven/api/cli/mvn/MavenOptions.java       | 13 +++
+ .../invoker/mvn/CommonsCliMavenOptions.java   | 13 +++
+ .../invoker/mvn/LayeredMavenOptions.java      |  5 +
+ .../maven/cling/invoker/mvn/MavenInvoker.java |  9 ++
+ .../cling/invoker/mvn/SbomReportWriter.java   | 94 +++++++++++++++++++
+ .../mvn/CommonsCliMavenOptionsSbomTest.java   | 47 ++++++++++
+ 6 files changed, 181 insertions(+)
+ create mode 100644 impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
+ create mode 100644 impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java
+
+diff --git a/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java b/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
+index 6cbce22d..05bd0e48 100644
+--- a/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
++++ b/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
+@@ -253,4 +253,17 @@ public interface MavenOptions extends Options {
+      */
+     @Nonnull
+     Optional<Boolean> listAliases();
++
++    /**
++     * Indicates that an SBOM report should be written after the build completes.
++     * The report is written to {@code sbom.json} in the top-level project directory.
++     * The report lists the resolved dependencies of every built project as protobom-style
++     * components; supplier, license and hash are omitted as Maven does not retain them
++     * in the resolved artifact set.
++     *
++     * @return an {@link Optional} containing the report file name, or empty if not specified
++     * @since 4.2.0
++     */
++    @Nonnull
++    Optional<String> sbomFile();
+ }
+diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptions.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptions.java
+index bdeaf179..436d5a94 100644
+--- a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptions.java
++++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptions.java
+@@ -252,6 +252,14 @@ public Optional<Boolean> listAliases() {
+         return commandLine.hasOption(CLIManager.LIST_ALIASES) ? Optional.of(true) : Optional.empty();
+     }
+ 
++    @Override
++    public Optional<String> sbomFile() {
++        if (commandLine.hasOption(CLIManager.SBOM)) {
++            return Optional.of("sbom.json");
++        }
++        return Optional.empty();
++    }
++
+     @Override
+     protected CommonsCliMavenOptions copy(
+             String source, CommonsCliOptions.CLIManager cliManager, CommandLine commandLine) {
+@@ -286,6 +294,7 @@ protected static class CLIManager extends CommonsCliOptions.CLIManager {
+         public static final String METADATA_UPDATE_POLICY = "metadata-update-policy";
+         public static final String AT_FILE = "af";
+         public static final String LIST_ALIASES = "list-aliases";
++        public static final String SBOM = "sbom";
+ 
+         @Override
+         protected void prepareOptions(org.apache.commons.cli.Options options) {
+@@ -432,6 +441,10 @@ protected void prepareOptions(org.apache.commons.cli.Options options) {
+                     .longOpt(LIST_ALIASES)
+                     .desc("List effective build aliases defined in settings files and exit.")
+                     .get());
++            options.addOption(Option.builder()
++                    .longOpt(SBOM)
++                    .desc("Write an SBOM report (sbom.json) to the top-level project directory after the build")
++                    .get());
+         }
+     }
+ }
+diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/LayeredMavenOptions.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/LayeredMavenOptions.java
+index 51fef1b8..31d1be05 100644
+--- a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/LayeredMavenOptions.java
++++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/LayeredMavenOptions.java
+@@ -179,6 +179,11 @@ public Optional<Boolean> listAliases() {
+         return returnFirstPresentOrEmpty(MavenOptions::listAliases);
+     }
+ 
++    @Override
++    public Optional<String> sbomFile() {
++        return returnFirstPresentOrEmpty(MavenOptions::sbomFile);
++    }
++
+     @Override
+     public MavenOptions interpolate(UnaryOperator<String> callback) {
+         ArrayList<MavenOptions> interpolatedOptions = new ArrayList<>(options.size());
+diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java
+index 929386aa..14f3462d 100644
+--- a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java
++++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/MavenInvoker.java
+@@ -19,6 +19,7 @@
+ package org.apache.maven.cling.invoker.mvn;
+ 
+ import java.io.FileNotFoundException;
++import java.io.IOException;
+ import java.nio.file.Files;
+ import java.nio.file.Path;
+ import java.util.ArrayList;
+@@ -570,6 +571,14 @@ protected int doExecute(MavenContext context, MavenExecutionRequest request) thr
+             context.eventSpyDispatcher.close();
+         }
+ 
++        context.options().sbomFile().ifPresent(file -> {
++            try {
++                SbomReportWriter.write(request.getTopDirectory().resolve(file), result);
++            } catch (IOException e) {
++                context.logger.warn("Failed to write SBOM report: " + e.getMessage());
++            }
++        });
++
+         if (result.hasExceptions()) {
+             ExceptionHandler handler = new DefaultExceptionHandler();
+             boolean hasDetailedHelp = false;
+diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
+new file mode 100644
+index 00000000..56726e1f
+--- /dev/null
++++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
+@@ -0,0 +1,94 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++package org.apache.maven.cling.invoker.mvn;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.time.Instant;
++import java.time.ZoneOffset;
++import java.util.Map;
++import java.util.TreeMap;
++
++import org.apache.maven.artifact.Artifact;
++import org.apache.maven.execution.MavenExecutionResult;
++import org.apache.maven.project.MavenProject;
++
++/**
++ * Writes an SBOM report in a protobom-style JSON document from the resolved
++ * artifacts of the build. Hand-rolled encoder: maven-cli has no JSON library
++ * dependency, and adding one for a single report is not justified.
++ *
++ * <p>Only fields Maven actually retains in the resolved artifact set are emitted:
++ * component name, version and a synthesised purl. Supplier, license and hash are
++ * omitted, never fabricated. Components are sorted by purl and the timestamp
++ * honours {@code SOURCE_DATE_EPOCH}, so the output is deterministic.</p>
++ */
++final class SbomReportWriter {
++    private SbomReportWriter() {}
++
++    static void write(Path file, MavenExecutionResult result) throws IOException {
++        Map<String, String[]> components = new TreeMap<>();
++        for (MavenProject project : result.getTopologicallySortedProjects()) {
++            addComponent(components, project.getGroupId(), project.getArtifactId(), project.getVersion());
++            for (Artifact artifact : project.getArtifacts()) {
++                addComponent(components, artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion());
++            }
++        }
++
++        StringBuilder sb = new StringBuilder();
++        sb.append("{\n");
++        sb.append("  \"sbomFormat\": \"protobom-json\",\n");
++        sb.append("  \"metadata\": {\n");
++        sb.append("    \"authors\": [\"Apache Maven\"],\n");
++        sb.append("    \"tools\": [\"mvn\"],\n");
++        sb.append("    \"date\": \"").append(timestamp()).append("\"\n");
++        sb.append("  },\n");
++        sb.append("  \"components\": [\n");
++        int i = 0;
++        for (String[] c : components.values()) {
++            sb.append("    {\"name\": \"").append(escape(c[0]))
++                    .append("\", \"version\": \"").append(escape(c[1]))
++                    .append("\", \"purl\": \"").append(escape(c[2])).append("\"}");
++            sb.append(++i < components.size() ? ",\n" : "\n");
++        }
++        sb.append("  ]\n");
++        sb.append("}\n");
++        Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
++    }
++
++    private static void addComponent(Map<String, String[]> components, String groupId, String artifactId, String version) {
++        if (groupId == null || artifactId == null || version == null) {
++            return;
++        }
++        String purl = "pkg:maven/" + groupId + "/" + artifactId + "@" + version;
++        components.putIfAbsent(purl, new String[] {artifactId, version, purl});
++    }
++
++    private static String timestamp() {
++        String epoch = System.getenv("SOURCE_DATE_EPOCH");
++        Instant instant = epoch != null ? Instant.ofEpochSecond(Long.parseLong(epoch)) : Instant.now();
++        return instant.atOffset(ZoneOffset.UTC).toInstant().toString();
++    }
++
++    private static String escape(String value) {
++        return value.replace("\\", "\\\\").replace("\"", "\\\"");
++    }
++}
+diff --git a/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java b/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java
+new file mode 100644
+index 00000000..81a8ebd8
+--- /dev/null
++++ b/impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java
+@@ -0,0 +1,47 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++package org.apache.maven.cling.invoker.mvn;
++
++import org.junit.jupiter.api.Test;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++import static org.junit.jupiter.api.Assertions.assertTrue;
++
++/**
++ * Guards the {@code --sbom} option: it takes no argument, so a following goal must
++ * not be swallowed as its value.
++ */
++class CommonsCliMavenOptionsSbomTest {
++
++    @Test
++    void testSbomFlagDoesNotSwallowFollowingGoal() throws Exception {
++        CommonsCliMavenOptions options = CommonsCliMavenOptions.parse("test", new String[] {"--sbom", "package"});
++
++        assertTrue(options.sbomFile().isPresent(), "sbomFile must be present");
++        assertEquals("sbom.json", options.sbomFile().get());
++        assertEquals(java.util.List.of("package"), options.goals().orElseThrow(), "goal must survive");
++    }
++
++    @Test
++    void testSbomAbsentByDefault() throws Exception {
++        CommonsCliMavenOptions options = CommonsCliMavenOptions.parse("test", new String[] {"package"});
++
++        assertTrue(options.sbomFile().isEmpty(), "sbomFile must be empty without the flag");
++    }
++}
+-- 
+2.56.1
+

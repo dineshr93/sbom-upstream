@@ -1,0 +1,270 @@
+From c604c53dd3816d88fde8c089f2aba2a1ae0fe979 Mon Sep 17 00:00:00 2001
+From: dineshr93 <dineshr93@gmail.com>
+Date: Sun, 22 Nov 2026 09:05:15 +0100
+Subject: [PATCH] cmd/go: add go build -sbom (protobom output)
+
+Adds a -sbom flag to go build that writes sbom.protobom.bin, a protobom
+Document serialized from the main package's existing BuildInfo. Only the
+varint and length-delimited protobuf wire types are used, so no protobuf
+runtime is added to cmd/go. Module.Sum (h1:), license and supplier are
+omitted: h1: is a dirhash, not a protobom hash algorithm, and the go
+command tracks no license or supplier data.
+---
+ src/cmd/go/internal/cfg/cfg.go        |   1 +
+ src/cmd/go/internal/work/build.go     |  21 ++++
+ src/cmd/go/internal/work/sbom.go      | 134 ++++++++++++++++++++++++++
+ src/cmd/go/internal/work/sbom_test.go |  50 ++++++++++
+ 4 files changed, 206 insertions(+)
+ create mode 100644 src/cmd/go/internal/work/sbom.go
+ create mode 100644 src/cmd/go/internal/work/sbom_test.go
+
+diff --git a/src/cmd/go/internal/cfg/cfg.go b/src/cmd/go/internal/cfg/cfg.go
+index ff4310aa..18725c84 100644
+--- a/src/cmd/go/internal/cfg/cfg.go
++++ b/src/cmd/go/internal/cfg/cfg.go
+@@ -88,6 +88,7 @@ var (
+ 	BuildPGO               string                  // -pgo flag
+ 	BuildPkgdir            string                  // -pkgdir flag
+ 	BuildRace              bool                    // -race flag
++	BuildSBOM              bool                    // -sbom flag
+ 	BuildToolexec          []string                // -toolexec flag
+ 	BuildToolchainName     string
+ 	BuildToolchainCompiler func() string
+diff --git a/src/cmd/go/internal/work/build.go b/src/cmd/go/internal/work/build.go
+index 5a27ffbd..d8480291 100644
+--- a/src/cmd/go/internal/work/build.go
++++ b/src/cmd/go/internal/work/build.go
+@@ -248,6 +248,7 @@ func init() {
+ 	CmdInstall.Run = runInstall
+ 
+ 	CmdBuild.Flag.StringVar(&cfg.BuildO, "o", "", "output file or directory")
++	CmdBuild.Flag.BoolVar(&cfg.BuildSBOM, "sbom", false, "write sbom.protobom.bin with the build's module SBOM")
+ 
+ 	AddBuildFlags(CmdBuild, DefaultBuildFlags)
+ 	AddBuildFlags(CmdInstall, DefaultBuildFlags)
+@@ -507,6 +508,26 @@ func runBuild(ctx context.Context, cmd *base.Command, args []string) {
+ 		cfg.BuildO = ""
+ 	}
+ 
++	if cfg.BuildSBOM {
++		// ponytail: first main package only; per-package SBOMs if asked for.
++		dir := "."
++		switch {
++		case cfg.BuildO == "":
++		case strings.HasSuffix(cfg.BuildO, "/") || strings.HasSuffix(cfg.BuildO, string(os.PathSeparator)):
++			dir = cfg.BuildO
++		default:
++			dir = filepath.Dir(cfg.BuildO)
++		}
++		for _, p := range pkgs {
++			if p.Name == "main" && p.Internal.BuildInfo != nil {
++				if err := writeSBOM(dir, p.Internal.BuildInfo); err != nil {
++					base.Fatalf("go: cannot write sbom: %v", err)
++				}
++				break
++			}
++		}
++	}
++
+ 	if cfg.BuildCover {
+ 		load.PrepareForCoverageBuild(moduleLoader, pkgs)
+ 	}
+diff --git a/src/cmd/go/internal/work/sbom.go b/src/cmd/go/internal/work/sbom.go
+new file mode 100644
+index 00000000..f70bc0c9
+--- /dev/null
++++ b/src/cmd/go/internal/work/sbom.go
+@@ -0,0 +1,134 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package work
++
++import (
++	"encoding/binary"
++	"os"
++	"path/filepath"
++	"runtime/debug"
++	"sort"
++	"strconv"
++	"time"
++)
++
++// writeSBOM writes a protobom Document for info into dir as sbom.protobom.bin.
++func writeSBOM(dir string, info *debug.BuildInfo) error {
++	return os.WriteFile(filepath.Join(dir, "sbom.protobom.bin"), sbomDocument(info), 0666)
++}
++
++// sbomDocument serializes a protobom Document from a main package's BuildInfo.
++// Only the varint and length-delimited wire types are used, so no protobuf
++// runtime is needed. Nodes are sorted by id and edges by target so output is
++// byte-identical for the same input.
++//
++// Module.Sum is deliberately not emitted: the h1: scheme is a dirhash of the
++// module zip, not a hash algorithm protobom defines. License and supplier are
++// not tracked by the go command and are omitted.
++func sbomDocument(info *debug.BuildInfo) []byte {
++	mainID := "pkg:golang/" + info.Main.Path + "@" + info.Main.Version
++
++	type nb struct {
++		id string
++		b  []byte
++	}
++	list := make([]nb, 0, len(info.Deps)+1)
++	list = append(list, nb{mainID, pbNode(mainID, info.Main.Path, info.Main.Version)})
++	for _, m := range info.Deps {
++		id := "pkg:golang/" + m.Path + "@" + m.Version
++		list = append(list, nb{id, pbNode(id, m.Path, m.Version)})
++	}
++	sort.Slice(list, func(i, j int) bool { return list[i].id < list[j].id })
++
++	tos := make([]string, 0, len(info.Deps))
++	for _, m := range info.Deps {
++		tos = append(tos, "pkg:golang/"+m.Path+"@"+m.Version)
++	}
++	sort.Strings(tos)
++
++	var nl []byte
++	for _, n := range list {
++		nl = pbMsg(nl, 1, n.b)
++	}
++	for _, to := range tos {
++		nl = pbMsg(nl, 2, pbEdge(mainID, to))
++	}
++	nl = pbStr(nl, 3, mainID)
++
++	var ts []byte
++	ts = pbInt(ts, 1, sbomSeconds(info))
++	var tool []byte
++	tool = pbStr(tool, 1, "go build")
++	tool = pbStr(tool, 2, info.GoVersion)
++	var author []byte
++	author = pbStr(author, 1, "go build")
++	author = pbInt(author, 2, 1) // is_org
++	var md []byte
++	md = pbStr(md, 3, "go build sbom")
++	md = pbMsg(md, 4, ts)
++	md = pbMsg(md, 5, tool)
++	md = pbMsg(md, 6, author)
++
++	var doc []byte
++	doc = pbMsg(doc, 1, md)
++	doc = pbMsg(doc, 2, nl)
++	return doc
++}
++
++// sbomSeconds returns the document timestamp: SOURCE_DATE_EPOCH, else the
++// vcs.time build setting, else now.
++func sbomSeconds(info *debug.BuildInfo) int64 {
++	if v := os.Getenv("SOURCE_DATE_EPOCH"); v != "" {
++		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
++			return n
++		}
++	}
++	for _, s := range info.Settings {
++		if s.Key == "vcs.time" {
++			if t, err := time.Parse(time.RFC3339, s.Value); err == nil {
++				return t.Unix()
++			}
++		}
++	}
++	return time.Now().Unix()
++}
++
++// pbNode builds a protobom Node: id=1, name=3, version=4.
++func pbNode(id, name, version string) []byte {
++	var b []byte
++	b = pbStr(b, 1, id)
++	b = pbStr(b, 3, name)
++	b = pbStr(b, 4, version)
++	return b
++}
++
++// pbEdge builds a protobom Edge: type=1 (10=dependsOn), from=2, to=3.
++func pbEdge(from, to string) []byte {
++	var b []byte
++	b = pbInt(b, 1, 10)
++	b = pbStr(b, 2, from)
++	b = pbStr(b, 3, to)
++	return b
++}
++
++func pbTag(b []byte, field, wire int) []byte {
++	return binary.AppendUvarint(b, uint64(field)<<3|uint64(wire))
++}
++
++func pbInt(b []byte, field int, v int64) []byte {
++	return binary.AppendUvarint(pbTag(b, field, 0), uint64(v))
++}
++
++func pbStr(b []byte, field int, s string) []byte {
++	b = pbTag(b, field, 2)
++	b = binary.AppendUvarint(b, uint64(len(s)))
++	return append(b, s...)
++}
++
++func pbMsg(b []byte, field int, sub []byte) []byte {
++	b = pbTag(b, field, 2)
++	b = binary.AppendUvarint(b, uint64(len(sub)))
++	return append(b, sub...)
++}
+diff --git a/src/cmd/go/internal/work/sbom_test.go b/src/cmd/go/internal/work/sbom_test.go
+new file mode 100644
+index 00000000..fb182919
+--- /dev/null
++++ b/src/cmd/go/internal/work/sbom_test.go
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Go Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style
++// license that can be found in the LICENSE file.
++
++package work
++
++import (
++	"bytes"
++	"encoding/hex"
++	"runtime/debug"
++	"testing"
++)
++
++func sbomTestInfo() *debug.BuildInfo {
++	return &debug.BuildInfo{
++		GoVersion: "go1.28",
++		Main:      debug.Module{Path: "example.com/m", Version: "(devel)"},
++		Deps: []*debug.Module{
++			{Path: "golang.org/x/tools", Version: "v0.53.1", Sum: "h1:abc123"},
++			{Path: "github.com/google/pprof", Version: "v0.0.0", Sum: "h1:def456"},
++		},
++	}
++}
++
++func TestSBOMDeterministic(t *testing.T) {
++	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
++	if a, b := sbomDocument(sbomTestInfo()), sbomDocument(sbomTestInfo()); !bytes.Equal(a, b) {
++		t.Fatal("sbomDocument not byte-identical for same input")
++	}
++}
++
++func TestSBOMNoHash(t *testing.T) {
++	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
++	if bytes.Contains(sbomDocument(sbomTestInfo()), []byte("h1:")) {
++		t.Fatal("h1 sum leaked into output")
++	}
++}
++
++func TestSBOMGolden(t *testing.T) {
++	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
++	got := hex.EncodeToString(sbomDocument(sbomTestInfo()))
++	if got != sbomGoldenHex {
++		t.Fatalf("got  %s\nwant %s", got, sbomGoldenHex)
++	}
++}
++
++// sbomGoldenHex is the encoding of the Document for sbomTestInfo with
++// SOURCE_DATE_EPOCH=1700000000, verified against api/sbom.proto via
++// protoc --decode.
++const sbomGoldenHex = "0a391a0d676f206275696c642073626f6d22060880e2cfaa062a120a08676f206275696c641206676f312e3238320c0a08676f206275696c6410011290030a3a0a20706b673a676f6c616e672f6578616d706c652e636f6d2f6d4028646576656c291a0d6578616d706c652e636f6d2f6d220728646576656c290a4c0a29706b673a676f6c616e672f6769746875622e636f6d2f676f6f676c652f7070726f664076302e302e301a176769746875622e636f6d2f676f6f676c652f7070726f66220676302e302e300a440a25706b673a676f6c616e672f676f6c616e672e6f72672f782f746f6f6c734076302e35332e311a12676f6c616e672e6f72672f782f746f6f6c73220776302e35332e31124f080a1220706b673a676f6c616e672f6578616d706c652e636f6d2f6d4028646576656c291a29706b673a676f6c616e672f6769746875622e636f6d2f676f6f676c652f7070726f664076302e302e30124b080a1220706b673a676f6c616e672f6578616d706c652e636f6d2f6d4028646576656c291a25706b673a676f6c616e672f676f6c616e672e6f72672f782f746f6f6c734076302e35332e311a20706b673a676f6c616e672f6578616d706c652e636f6d2f6d4028646576656c29"
+-- 
+2.56.1
+

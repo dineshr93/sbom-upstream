@@ -1,0 +1,451 @@
+From 04bf053778af9ef9dc55752f4f88174af7cd7104 Mon Sep 17 00:00:00 2001
+From: dineshr93 <dineshr93@gmail.com>
+Date: Sun, 22 Nov 2026 08:24:22 +0100
+Subject: [PATCH] Add opt-in SBOM generation for dependency configurations
+
+Adds an sbom task that walks the resolved dependency graph of the
+configured configurations and writes an NTIA-minimal SBOM as JSON.
+
+- SbomReportTask: @Option --configuration, configurable ListProperty
+  configurations and RegularFileProperty output (convention
+  build/reports/sbom/sbom.json). No protobuf runtime in Gradle, so the
+  document is written with a hand-rolled encoder.
+- DiagnosticsTaskNames.SBOM_TASK / HelpTasksPlugin.SBOM_TASK so the
+  name is a single override point, matching DEPENDENCIES_TASK.
+- Deterministic output: nodes sorted by purl, edges sorted by
+  (from, to), timestamp from SOURCE_DATE_EPOCH when set.
+- Opt-in only: nothing runs unless the task is invoked.
+
+Omitted and documented: supplier and hash are not available from the
+resolved component results, so those NTIA elements are left out.
+
+Signed-off-by: dineshr93 <dineshr93@gmail.com>
+---
+ .../gradle/api/plugins/HelpTasksPlugin.java   |   8 +
+ .../internal/DiagnosticsTaskNames.java        |   7 +
+ .../SbomReportTaskIntegrationTest.groovy      |  71 +++++
+ .../plugins/SoftwareReportingTasksPlugin.java |  20 ++
+ .../api/tasks/diagnostics/SbomReportTask.java | 250 ++++++++++++++++++
+ 5 files changed, 356 insertions(+)
+ create mode 100644 platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy
+ create mode 100644 platforms/software/software-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/SbomReportTask.java
+
+diff --git a/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java b/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java
+index 96371b3a..a4a29d12 100644
+--- a/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java
++++ b/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java
+@@ -60,6 +60,14 @@ public abstract class HelpTasksPlugin implements Plugin<Project> {
+      */
+     public static final String DEPENDENCY_INSIGHT_TASK = DiagnosticsTaskNames.DEPENDENCY_INSIGHT_TASK;
+ 
++    /**
++     * The sbom task.
++     *
++     * @since 9.10.0
++     */
++    @Incubating
++    public static final String SBOM_TASK = DiagnosticsTaskNames.SBOM_TASK;
++
+     /**
+      * The name of the outgoing variants report task.
+      *
+diff --git a/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/internal/DiagnosticsTaskNames.java b/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/internal/DiagnosticsTaskNames.java
+index 8283527d..5623d5b2 100644
+--- a/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/internal/DiagnosticsTaskNames.java
++++ b/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/internal/DiagnosticsTaskNames.java
+@@ -100,4 +100,11 @@ public interface DiagnosticsTaskNames {
+      * @since 8.13
+      */
+     String DEPENDENT_COMPONENTS_TASK = "dependentComponents";
++
++    /**
++     * The name of the SBOM generation task.
++     *
++     * @since 9.10.0
++     */
++    String SBOM_TASK = "sbom";
+ }
+diff --git a/platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy b/platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy
+new file mode 100644
+index 00000000..d3bc753b
+--- /dev/null
++++ b/platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy
+@@ -0,0 +1,71 @@
++/*
++ * Copyright 2026 the original author or authors.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.gradle.api.tasks.diagnostics
++
++import groovy.json.JsonSlurper
++import org.gradle.integtests.fixtures.AbstractIntegrationSpec
++
++class SbomReportTaskIntegrationTest extends AbstractIntegrationSpec {
++
++    def setup() {
++        mavenRepo.module("org", "leaf1").publish()
++        mavenRepo.module("org", "leaf2").dependsOnModules("leaf1").publish()
++        buildFile << """
++            apply plugin: 'java'
++            repositories { maven { url = "${mavenRepo.uri}" } }
++            dependencies { implementation 'org:leaf2:1.0' }
++        """
++    }
++
++    def "writes a protobom json file for runtimeClasspath"() {
++        when:
++        run "sbom"
++
++        then:
++        def report = new JsonSlurper().parse(file("build/reports/sbom/sbom.json"))
++        report.metadata.tools[0].name == "Gradle"
++        report.nodeList.nodes.find { it.identifiers.PURL == "pkg:maven/org/leaf2@1.0" } != null
++        report.nodeList.edges.every { it.type == "dependsOn" }
++        report.nodeList.rootElements.every { it.toString().startsWith("root project") }
++    }
++
++    def "output file and configurations can be configured"() {
++        given:
++        buildFile << """
++            tasks.named("sbom") {
++                output = layout.buildDirectory.file("reports/other.json")
++                configurations = ["compileClasspath"]
++            }
++        """
++
++        when:
++        run "sbom"
++
++        then:
++        file("build/reports/other.json").text.contains("pkg:maven/org/leaf2@1.0")
++        !file("build/reports/sbom/sbom.json").exists()
++    }
++
++    def "--configuration selects another configuration"() {
++        when:
++        run "sbom", "--configuration", "annotationProcessor"
++
++        then:
++        def report = new JsonSlurper().parse(file("build/reports/sbom/sbom.json"))
++        report.nodeList.nodes.every { it.identifiers == null }
++        !report.nodeList.nodes.any { it.identifiers?.PURL == "pkg:maven/org/leaf2@1.0" }
++    }
++}
+diff --git a/platforms/software/software-diagnostics/src/main/java/org/gradle/api/plugins/SoftwareReportingTasksPlugin.java b/platforms/software/software-diagnostics/src/main/java/org/gradle/api/plugins/SoftwareReportingTasksPlugin.java
+index 83c24549..cfb6de77 100644
+--- a/platforms/software/software-diagnostics/src/main/java/org/gradle/api/plugins/SoftwareReportingTasksPlugin.java
++++ b/platforms/software/software-diagnostics/src/main/java/org/gradle/api/plugins/SoftwareReportingTasksPlugin.java
+@@ -27,9 +27,12 @@
+ import org.gradle.api.tasks.diagnostics.DependencyReportTask;
+ import org.gradle.api.tasks.diagnostics.OutgoingVariantsReportTask;
+ import org.gradle.api.tasks.diagnostics.ResolvableConfigurationsReportTask;
++import org.gradle.api.tasks.diagnostics.SbomReportTask;
+ import org.gradle.api.tasks.diagnostics.TaskReportTask;
+ import org.jspecify.annotations.NullMarked;
+ 
++import java.util.Collections;
++
+ /**
+  * Adds various reporting tasks that provide information about a software project, such as information about
+  * configurations and dependency reporting tasks that make use of dependency management.
+@@ -49,6 +52,7 @@ public void apply(Project project) {
+         tasks.register(HelpTasksPlugin.DEPENDENCY_INSIGHT_TASK, DependencyInsightReportTask.class, new DependencyInsightReportTaskAction(projectName));
+         tasks.register(HelpTasksPlugin.DEPENDENCIES_TASK, DependencyReportTask.class, new DependencyReportTaskAction(projectName));
+         tasks.register(BuildEnvironmentReportTask.TASK_NAME, BuildEnvironmentReportTask.class, new BuildEnvironmentReportTaskAction(projectName));
++        tasks.register(HelpTasksPlugin.SBOM_TASK, SbomReportTask.class, new SbomReportTaskAction(projectName));
+ 
+         tasks.register(HelpTasksPlugin.OUTGOING_VARIANTS_TASK, OutgoingVariantsReportTask.class, task -> {
+             task.setDescription("Displays the outgoing variants of " + projectName + ".");
+@@ -105,6 +109,22 @@ public void execute(DependencyReportTask task) {
+         }
+     }
+ 
++    private static class SbomReportTaskAction implements Action<SbomReportTask> {
++        private final String projectName;
++
++        public SbomReportTaskAction(String projectName) {
++            this.projectName = projectName;
++        }
++
++        @Override
++        public void execute(SbomReportTask task) {
++            task.setDescription("Generates a protobom SBOM for " + projectName + ".");
++            task.setGroup(HelpTasksPlugin.HELP_GROUP);
++            task.getOutput().convention(task.getProject().getLayout().getBuildDirectory().file("reports/sbom/sbom.json"));
++            task.getConfigurations().convention(Collections.singletonList("runtimeClasspath"));
++        }
++    }
++
+     private static class BuildEnvironmentReportTaskAction implements Action<BuildEnvironmentReportTask> {
+         private final String projectName;
+ 
+diff --git a/platforms/software/software-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/SbomReportTask.java b/platforms/software/software-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/SbomReportTask.java
+new file mode 100644
+index 00000000..07297ed6
+--- /dev/null
++++ b/platforms/software/software-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/SbomReportTask.java
+@@ -0,0 +1,250 @@
++/*
++ * Copyright 2026 the original author or authors.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package org.gradle.api.tasks.diagnostics;
++
++import com.google.gson.stream.JsonWriter;
++import org.gradle.api.DefaultTask;
++import org.gradle.api.Incubating;
++import org.gradle.api.artifacts.Configuration;
++import org.gradle.api.artifacts.component.ComponentIdentifier;
++import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
++import org.gradle.api.artifacts.result.DependencyResult;
++import org.gradle.api.artifacts.result.ResolvedComponentResult;
++import org.gradle.api.artifacts.result.ResolvedDependencyResult;
++import org.gradle.api.file.RegularFileProperty;
++import org.gradle.api.provider.ListProperty;
++import org.gradle.api.tasks.Input;
++import org.gradle.api.tasks.OutputFile;
++import org.gradle.api.tasks.TaskAction;
++import org.gradle.api.tasks.diagnostics.internal.ConfigurationFinder;
++import org.gradle.api.tasks.options.Option;
++import org.gradle.internal.serialization.Cached;
++import org.gradle.util.GradleVersion;
++import org.gradle.work.DisableCachingByDefault;
++import org.jspecify.annotations.NullMarked;
++import org.jspecify.annotations.Nullable;
++
++import java.io.IOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.time.Instant;
++import java.util.Collections;
++import java.util.Map;
++import java.util.Set;
++import java.util.TreeMap;
++import java.util.TreeSet;
++
++/**
++ * Generates a protobom SBOM for the resolved dependency graph of a configuration.
++ *
++ * @since 9.10.0
++ */
++@SuppressWarnings("this-escape")
++@DisableCachingByDefault(because = "Not worth caching")
++@Incubating
++@NullMarked
++public abstract class SbomReportTask extends DefaultTask {
++
++    private final Cached<Graph> graph = Cached.of(this::collectGraph);
++
++    /**
++     * The configurations to include in the SBOM. Defaults to {@code runtimeClasspath}.
++     *
++     * @since 9.10.0
++     */
++    @Input
++    public abstract ListProperty<String> getConfigurations();
++
++    /**
++     * The file the SBOM is written to. Defaults to {@code build/reports/sbom/sbom.json}.
++     *
++     * @since 9.10.0
++     */
++    @OutputFile
++    public abstract RegularFileProperty getOutput();
++
++    /**
++     * Sets the single configuration (by name) to generate the SBOM for.
++     *
++     * @since 9.10.0
++     */
++    @Option(option = "configuration", description = "The configuration to generate the SBOM for.")
++    public void setConfiguration(String configurationName) {
++        getConfigurations().set(Collections.singletonList(configurationName));
++    }
++
++    @TaskAction
++    public void generate() throws IOException {
++        Graph graph = this.graph.get();
++        try (JsonWriter json = new JsonWriter(Files.newBufferedWriter(getOutput().get().getAsFile().toPath(), StandardCharsets.UTF_8))) {
++            json.setIndent("  ");
++            json.beginObject();
++            writeMetadata(json);
++            json.name("nodeList");
++            json.beginObject();
++            writeNodes(json, graph.nodes);
++            writeEdges(json, graph.edges);
++            json.name("rootElements");
++            json.beginArray();
++            for (String root : graph.roots) {
++                json.value(root);
++            }
++            json.endArray();
++            json.endObject();
++            json.endObject();
++        }
++    }
++
++    private Graph collectGraph() {
++        Graph result = new Graph();
++        for (String name : getConfigurations().get()) {
++            Configuration configuration = ConfigurationFinder.find(getProject().getConfigurations(), name);
++            ResolvedComponentResult root = configuration.getIncoming().getResolutionResult().getRootComponent().get();
++            result.addComponent(root.getId());
++            result.roots.add(root.getId().getDisplayName());
++            collectFrom(result, root);
++        }
++        return result;
++    }
++
++    private static void collectFrom(Graph result, ResolvedComponentResult from) {
++        String fromId = from.getId().getDisplayName();
++        for (DependencyResult dependency : from.getDependencies()) {
++            if (!(dependency instanceof ResolvedDependencyResult) || dependency.isConstraint()) {
++                continue;
++            }
++            ResolvedComponentResult selected = ((ResolvedDependencyResult) dependency).getSelected();
++            boolean isNew = result.addComponent(selected.getId());
++            result.edges.computeIfAbsent(fromId, k -> new TreeSet<>()).add(selected.getId().getDisplayName());
++            if (isNew) {
++                collectFrom(result, selected);
++            }
++        }
++    }
++
++    private static void writeMetadata(JsonWriter json) throws IOException {
++        json.name("metadata");
++        json.beginObject();
++        json.name("name").value("Gradle");
++        json.name("date").value(timestamp());
++        json.name("tools");
++        json.beginArray();
++        json.beginObject();
++        json.name("name").value("Gradle");
++        json.name("version").value(GradleVersion.current().getVersion());
++        json.endObject();
++        json.endArray();
++        json.name("authors");
++        json.beginArray();
++        json.beginObject();
++        json.name("name").value("Gradle");
++        json.name("isOrg").value(true);
++        json.endObject();
++        json.endArray();
++        json.endObject();
++    }
++
++    private static void writeNodes(JsonWriter json, Map<String, Node> nodes) throws IOException {
++        json.name("nodes");
++        json.beginArray();
++        for (Node node : nodes.values()) {
++            json.beginObject();
++            json.name("id").value(node.id);
++            json.name("name").value(node.name);
++            if (node.version != null) {
++                json.name("version").value(node.version);
++            }
++            if (node.purl != null) {
++                json.name("identifiers");
++                json.beginObject();
++                json.name("PURL").value(node.purl);
++                json.endObject();
++            }
++            json.endObject();
++        }
++        json.endArray();
++    }
++
++    private static void writeEdges(JsonWriter json, Map<String, Set<String>> edges) throws IOException {
++        json.name("edges");
++        json.beginArray();
++        for (Map.Entry<String, Set<String>> edge : edges.entrySet()) {
++            json.beginObject();
++            json.name("type").value("dependsOn");
++            json.name("from").value(edge.getKey());
++            json.name("to");
++            json.beginArray();
++            for (String to : edge.getValue()) {
++                json.value(to);
++            }
++            json.endArray();
++            json.endObject();
++        }
++        json.endArray();
++    }
++
++    /**
++     * Honors {@code SOURCE_DATE_EPOCH} so that SBOMs diff cleanly in CI.
++     */
++    private static String timestamp() {
++        String epoch = System.getenv("SOURCE_DATE_EPOCH");
++        if (epoch != null) {
++            try {
++                return Instant.ofEpochSecond(Long.parseLong(epoch)).toString();
++            } catch (NumberFormatException ignored) {
++                // fall through to the wall clock
++            }
++        }
++        return Instant.now().toString();
++    }
++
++    private static final class Graph {
++        private final TreeMap<String, Node> nodes = new TreeMap<>();
++        private final TreeMap<String, Set<String>> edges = new TreeMap<>();
++        private final TreeSet<String> roots = new TreeSet<>();
++
++        private boolean addComponent(ComponentIdentifier id) {
++            String displayName = id.getDisplayName();
++            if (nodes.containsKey(displayName)) {
++                return false;
++            }
++            if (id instanceof ModuleComponentIdentifier) {
++                ModuleComponentIdentifier module = (ModuleComponentIdentifier) id;
++                nodes.put(displayName, new Node(displayName, module.getModule(), module.getVersion(),
++                    "pkg:maven/" + module.getGroup() + "/" + module.getModule() + "@" + module.getVersion()));
++            } else {
++                nodes.put(displayName, new Node(displayName, displayName, null, null));
++            }
++            return true;
++        }
++    }
++
++    private static final class Node {
++        private final String id;
++        private final String name;
++        @Nullable
++        private final String version;
++        @Nullable
++        private final String purl;
++
++        private Node(String id, String name, @Nullable String version, @Nullable String purl) {
++            this.id = id;
++            this.name = name;
++            this.version = version;
++            this.purl = purl;
++        }
++    }
++}
+-- 
+2.56.1
+
