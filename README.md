@@ -13,17 +13,6 @@ patching and third-party scanners become unnecessary.
 
 ## Repo queue
 
-| Tool | Language | Status |
-| --- | --- | --- |
-| CMake | C++ | queued |
-| Meson | Python | queued |
-| Bazel | Starlark/Java | queued |
-| Gradle | Java/Kotlin | queued |
-| Maven | Java | queued |
-| Cargo | Rust | queued |
-| Go | Go | queued |
-| Autotools | shell/m4 | queued |
-
 Live status, PR links and maintainer objections: [STATUS.md](STATUS.md).
 Session state for resuming work: [HANDOFF.md](HANDOFF.md).
 
@@ -64,6 +53,7 @@ build-systems/   per-tool data source, flag shape, format tradeoff, gaps
 emitter/         embeddable SBOM emitter (C core + Python/Go/Rust/Java bindings)
 recon/           recon findings per repo (created as work proceeds)
 design/          approved designs per repo
+impl/            implementation patches per repo
 pr/              PR titles + bodies per repo
 STATUS.md        tracking table
 ```
