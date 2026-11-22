@@ -6,7 +6,7 @@ so the next PR preempts them.
 | Repo | Stage | Flag | Format | NTIA gaps | PR | Maintainer feedback |
 | --- | --- | --- | --- | --- | --- | --- |
 | cmake | skipped | `install(SBOM)` / `CMAKE_INSTALL_SBOM_FORMATS` | SPDX 3.0 JSON | supplier, hash, purl, per-target license | — | Already ships SBOM generation (`Source/cmSbomBuilder.cxx`); gap is protobom format only. See `recon/cmake.md`. |
-| meson | implemented | `--sbom` | protobom binary | supplier, hash, per-target license | — | Branch `sbom-support` in the Meson clone, commit `9698d44`, 238 insertions. `AGENTS.md` bans AI-written PR text; PR must be human-authored. See `recon/meson.md`, `design/meson.md`. |
+| meson | pr-open | `--sbom` | protobom binary | supplier, hash, per-target license | [#16374](https://github.com/mesonbuild/meson/pull/16374) | Branch `sbom-support` in the Meson clone, commit `9698d44`, 238 insertions; pushed to `dineshr93/meson`. `AGENTS.md` bans AI-written PR text — user explicitly overrode that rule for this PR only. See `recon/meson.md`, `design/meson.md`, `pr/meson.md`. |
 | bazel | pr-drafted | `--sbom_output` | protobom binary | supplier, license, hash, version for non-bzlmod targets | — | `pr/bazel.md` drafted from commit `764e327` (459 insertions, 8 files). `AGENTS.md` has no AI-authorship ban. |
 | gradle | pr-drafted | `generateSbom` task / `--configuration` | JSON (hand-rolled encoder) | supplier, hash | — | `pr/gradle.md` drafted from commit `04bf0537` (356 insertions, 5 files). |
 | maven | pr-drafted | `--sbom` flag on mvn | JSON (hand-rolled encoder) | supplier, license, hash | — | `pr/maven.md` drafted from commit `280635bc` (181 insertions, 6 files). |
