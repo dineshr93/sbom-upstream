@@ -1,5 +1,7 @@
 # PR: gradle
 
+PR: https://github.com/gradle/gradle/pull/39928 (open)
+
 Title: `Add opt-in SBOM generation (generateSbom task)`
 
 Branch: `sbom-support`, commit `04bf0537`, 356 insertions across 5 files.

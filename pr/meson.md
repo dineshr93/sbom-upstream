@@ -1,3 +1,5 @@
+PR: https://github.com/mesonbuild/meson/pull/16374 (open)
+
 ## What
 
 Adds `meson setup --sbom`: writes a protobom (protobuf) SBOM for the configured project to `<builddir>/sbom.protobom.bin`. Opt-in, off by default, no new dependency.

@@ -1,5 +1,7 @@
 # PR: bazel
 
+PR: https://github.com/bazelbuild/bazel/pull/32863 (open)
+
 Title: `Add opt-in SBOM generation (--sbom_output)`
 
 Branch: `sbom-support`, commit `764e327`, 459 insertions across 8 files.
