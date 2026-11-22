@@ -1,35 +1,9 @@
-From 04bf053778af9ef9dc55752f4f88174af7cd7104 Mon Sep 17 00:00:00 2001
+From 925ef93 Mon Sep 17 00:00:00 2001
 From: dineshr93 <dineshr93@gmail.com>
-Date: Sun, 22 Nov 2026 08:24:22 +0100
+Date: Sun, 22 Nov 2026 12:30:00 +0100
 Subject: [PATCH] Add opt-in SBOM generation for dependency configurations
 
-Adds an sbom task that walks the resolved dependency graph of the
-configured configurations and writes an NTIA-minimal SBOM as JSON.
-
-- SbomReportTask: @Option --configuration, configurable ListProperty
-  configurations and RegularFileProperty output (convention
-  build/reports/sbom/sbom.json). No protobuf runtime in Gradle, so the
-  document is written with a hand-rolled encoder.
-- DiagnosticsTaskNames.SBOM_TASK / HelpTasksPlugin.SBOM_TASK so the
-  name is a single override point, matching DEPENDENCIES_TASK.
-- Deterministic output: nodes sorted by purl, edges sorted by
-  (from, to), timestamp from SOURCE_DATE_EPOCH when set.
-- Opt-in only: nothing runs unless the task is invoked.
-
-Omitted and documented: supplier and hash are not available from the
-resolved component results, so those NTIA elements are left out.
-
-Signed-off-by: dineshr93 <dineshr93@gmail.com>
 ---
- .../gradle/api/plugins/HelpTasksPlugin.java   |   8 +
- .../internal/DiagnosticsTaskNames.java        |   7 +
- .../SbomReportTaskIntegrationTest.groovy      |  71 +++++
- .../plugins/SoftwareReportingTasksPlugin.java |  20 ++
- .../api/tasks/diagnostics/SbomReportTask.java | 250 ++++++++++++++++++
- 5 files changed, 356 insertions(+)
- create mode 100644 platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy
- create mode 100644 platforms/software/software-diagnostics/src/main/java/org/gradle/api/tasks/diagnostics/SbomReportTask.java
-
 diff --git a/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java b/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java
 index 96371b3a..a4a29d12 100644
 --- a/platforms/core-configuration/base-diagnostics/src/main/java/org/gradle/api/plugins/HelpTasksPlugin.java
@@ -67,7 +41,7 @@ index 8283527d..5623d5b2 100644
  }
 diff --git a/platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy b/platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy
 new file mode 100644
-index 00000000..d3bc753b
+index 00000000..a8d59ec2
 --- /dev/null
 +++ b/platforms/software/software-diagnostics/src/integTest/groovy/org/gradle/api/tasks/diagnostics/SbomReportTaskIntegrationTest.groovy
 @@ -0,0 +1,71 @@
@@ -446,6 +420,3 @@ index 00000000..07297ed6
 +        }
 +    }
 +}
--- 
-2.56.1
-

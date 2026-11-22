@@ -4,7 +4,7 @@ PR: https://github.com/apache/maven/pull/14093 (open)
 
 Title: `Add opt-in SBOM generation (--sbom)`
 
-Branch: `sbom-support`, commit `280635bc`, 221 insertions across 6 files.
+Branch: `sbom-support`, commits `280635bc` and `fc81e18`, 221 insertions across 6 files.
 
 ---
 

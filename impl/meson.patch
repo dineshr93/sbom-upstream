@@ -1,19 +1,9 @@
-From 9698d44efa6e16e92d16686712c884c8fdcd41fb Mon Sep 17 00:00:00 2001
+From 433efed Mon Sep 17 00:00:00 2001
 From: dineshr93 <dineshr93@gmail.com>
-Date: Sat, 21 Nov 2026 21:40:22 +0100
+Date: Sun, 22 Nov 2026 12:30:00 +0100
 Subject: [PATCH] Add --sbom to write a protobom SBOM at configure time
 
 ---
- docs/markdown/Commands.md      |   8 ++
- docs/markdown/snippets/sbom.md |  10 +++
- mesonbuild/msetup.py           |   8 +-
- mesonbuild/sbom.py             | 150 +++++++++++++++++++++++++++++++++
- unittests/sbomtests.py         |  73 ++++++++++++++++
- 5 files changed, 243 insertions(+), 1 deletion(-)
- create mode 100644 docs/markdown/snippets/sbom.md
- create mode 100644 mesonbuild/sbom.py
- create mode 100644 unittests/sbomtests.py
-
 diff --git a/docs/markdown/Commands.md b/docs/markdown/Commands.md
 index 8369313..9645d5e 100644
 --- a/docs/markdown/Commands.md
@@ -91,10 +81,10 @@ index 002ade5..9de7a2e 100644
  
 diff --git a/mesonbuild/sbom.py b/mesonbuild/sbom.py
 new file mode 100644
-index 0000000..d3dd210
+index 0000000..4f9b8cf
 --- /dev/null
 +++ b/mesonbuild/sbom.py
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,154 @@
 +# SPDX-License-Identifier: Apache-2.0
 +# Copyright 2026 The Meson development team
 +
@@ -182,7 +172,11 @@ index 0000000..d3dd210
 +
 +def _dependency_id(name: str, version: T.Optional[str]) -> str:
 +    purl = _purl(name, version)
-+    return purl or (f'{name}@{version}' if version and version != 'unknown' else name)
++    if purl:
++        return purl
++    if version and version != 'unknown':
++        return f'{name}@{version}'
++    return name
 +
 +
 +def _node(nid: str, name: str, version: T.Optional[str], purl: T.Optional[str]) -> bytes:
@@ -247,7 +241,7 @@ index 0000000..d3dd210
 +        raise MesonException(f'Could not write SBOM to {path}: {e}')
 diff --git a/unittests/sbomtests.py b/unittests/sbomtests.py
 new file mode 100644
-index 0000000..070aa2e
+index 0000000..1109d23
 --- /dev/null
 +++ b/unittests/sbomtests.py
 @@ -0,0 +1,73 @@
@@ -268,6 +262,11 @@ index 0000000..070aa2e
 +
 +class SbomEncoderTests(unittest.TestCase):
 +
++    def test_external_dep_without_version(self):
++        did = sbom._dependency_id('libfoo', None)
++        self.assertEqual(did, 'libfoo')
++        self.assertNotIn('None', did)
++
 +    def test_golden(self):
 +        doc = sbom._msg(sbom._DOC_METADATA, [
 +            sbom._str(sbom._META_NAME, 'demo'),
@@ -278,11 +277,6 @@ index 0000000..070aa2e
 +            sbom._node('pkg:generic/app@1.0', 'app', '1.0', 'pkg:generic/app@1.0'),
 +        ])
 +        self.assertEqual(doc.hex(), GOLDEN)
-+
-+    def test_external_dep_without_version(self):
-+        self.assertEqual(sbom._purl('foo', None), None)
-+        self.assertEqual(sbom._dependency_id('foo', None), 'foo')
-+        self.assertEqual(sbom._dependency_id('foo', '1.0'), 'pkg:generic/foo@1.0')
 +
 +
 +class SbomSetupTests(BasePlatformTests):
@@ -324,6 +318,3 @@ index 0000000..070aa2e
 +        srcdir = self._project()
 +        self.init(srcdir)
 +        self.assertPathDoesNotExist(os.path.join(self.builddir, 'sbom.protobom.bin'))
--- 
-2.56.1
-

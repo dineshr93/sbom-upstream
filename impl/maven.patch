@@ -1,20 +1,9 @@
-From 280635bc1a1f91ec04fd4e0bdeade8525a373f79 Mon Sep 17 00:00:00 2001
+From fc81e18 Mon Sep 17 00:00:00 2001
 From: dineshr93 <dineshr93@gmail.com>
-Date: Sun, 22 Nov 2026 08:50:43 +0100
-Subject: [PATCH] Add --sbom option to write a protobom-style SBOM report after
- the build
+Date: Sun, 22 Nov 2026 12:30:00 +0100
+Subject: [PATCH] Add --sbom option to write a protobom-style SBOM report after the build
 
 ---
- .../maven/api/cli/mvn/MavenOptions.java       | 13 +++
- .../invoker/mvn/CommonsCliMavenOptions.java   | 13 +++
- .../invoker/mvn/LayeredMavenOptions.java      |  5 +
- .../maven/cling/invoker/mvn/MavenInvoker.java |  9 ++
- .../cling/invoker/mvn/SbomReportWriter.java   | 134 ++++++++++++++++++++
- .../mvn/CommonsCliMavenOptionsSbomTest.java   | 47 ++++++++++
- 6 files changed, 221 insertions(+)
- create mode 100644 impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
- create mode 100644 impl/maven-cli/src/test/java/org/apache/maven/cling/invoker/mvn/CommonsCliMavenOptionsSbomTest.java
-
 diff --git a/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java b/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
 index 6cbce22d..05bd0e48 100644
 --- a/api/maven-api-cli/src/main/java/org/apache/maven/api/cli/mvn/MavenOptions.java
@@ -120,7 +109,7 @@ index 929386aa..14f3462d 100644
              boolean hasDetailedHelp = false;
 diff --git a/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
 new file mode 100644
-index 00000000..56726e1f
+index 00000000..e3737bc7
 --- /dev/null
 +++ b/impl/maven-cli/src/main/java/org/apache/maven/cling/invoker/mvn/SbomReportWriter.java
 @@ -0,0 +1,134 @@
@@ -311,6 +300,3 @@ index 00000000..81a8ebd8
 +        assertTrue(options.sbomFile().isEmpty(), "sbomFile must be empty without the flag");
 +    }
 +}
--- 
-2.56.1
-

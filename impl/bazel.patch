@@ -1,32 +1,9 @@
-From 764e327dbda5045a4e75a56c7e56fa1c47faf69d Mon Sep 17 00:00:00 2001
+From 9b5edf8 Mon Sep 17 00:00:00 2001
 From: dineshr93 <dineshr93@gmail.com>
-Date: Sun, 22 Nov 2026 06:43:06 +0100
+Date: Sun, 22 Nov 2026 12:30:00 +0100
 Subject: [PATCH] Add --sbom_output to write a protobom SBOM after the build
 
-Builds a protobom Document from the configured targets reachable from the
-requested targets and writes it as protobuf binary. Nodes carry the canonical
-label as id, the target name, and the bzlmod module version when the target
-belongs to a module; supplier, license and hash are omitted because Bazel
-does not model them. Output is deterministic: nodes sorted by id, edges by
-(from, to), roots sorted by id, timestamp honors SOURCE_DATE_EPOCH.
-
-Uses com.google.protobuf.CodedOutputStream, already linked into the commands
-target, so no new dependency and no new .proto is added.
 ---
- .../com/google/devtools/build/lib/bazel/BUILD |   1 +
- .../devtools/build/lib/bazel/sbom/BUILD       |  45 ++++
- .../build/lib/bazel/sbom/SbomOptions.java     |  39 +++
- .../build/lib/bazel/sbom/SbomWriter.java      | 251 ++++++++++++++++++
- .../devtools/build/lib/runtime/commands/BUILD |   1 +
- .../lib/runtime/commands/BuildCommand.java    |  30 ++-
- src/test/shell/integration/BUILD              |  11 +
- src/test/shell/integration/sbom_test.sh       |  85 ++++++
- 8 files changed, 457 insertions(+), 4 deletions(-)
- create mode 100644 src/main/java/com/google/devtools/build/lib/bazel/sbom/BUILD
- create mode 100644 src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomOptions.java
- create mode 100644 src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomWriter.java
- create mode 100755 src/test/shell/integration/sbom_test.sh
-
 diff --git a/src/main/java/com/google/devtools/build/lib/bazel/BUILD b/src/main/java/com/google/devtools/build/lib/bazel/BUILD
 index 86b56bc..bc4ac9c 100644
 --- a/src/main/java/com/google/devtools/build/lib/bazel/BUILD
@@ -137,10 +114,10 @@ index 0000000..02c6637
 +}
 diff --git a/src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomWriter.java b/src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomWriter.java
 new file mode 100644
-index 0000000..62a855c
+index 0000000..2ccb041
 --- /dev/null
 +++ b/src/main/java/com/google/devtools/build/lib/bazel/sbom/SbomWriter.java
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,249 @@
 +// Copyright 2026 The Bazel Authors. All rights reserved.
 +//
 +// Licensed under the Apache License, Version 2.0 (the "License");
@@ -188,8 +165,8 @@ index 0000000..62a855c
 +/**
 + * Writes a protobom SBOM of the configured targets reachable from the requested targets.
 + *
-+ * <p>The document is deterministic: nodes are sorted by id and edges by {@code (from, to)}, and the
-+ * timestamp honors {@code SOURCE_DATE_EPOCH}.
++ * <p>The document is deterministic: nodes are sorted by id, edges by {@code (from, to)}, and roots
++ * by id, and the timestamp honors {@code SOURCE_DATE_EPOCH}.
 + *
 + * <p>Fields Bazel does not model are omitted rather than fabricated: supplier, license, and hash.
 + * Version is only available for targets that belong to a bzlmod module.
@@ -581,6 +558,3 @@ index 0000000..df09b5a
 +}
 +
 +run_suite "sbom tests"
--- 
-2.56.1
-

@@ -4,7 +4,7 @@ PR: https://github.com/bazelbuild/bazel/pull/32863 (open)
 
 Title: `Add opt-in SBOM generation (--sbom_output)`
 
-Branch: `sbom-support`, commit `764e327`, 457 insertions across 8 files.
+Branch: `sbom-support`, commits `764e327` and `9b5edf8`, 457 insertions across 8 files.
 
 ---
 
