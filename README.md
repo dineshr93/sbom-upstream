@@ -25,6 +25,7 @@ patching and third-party scanners become unnecessary.
 | Autotools | shell/m4 | queued |
 
 Live status, PR links and maintainer objections: [STATUS.md](STATUS.md).
+Session state for resuming work: [HANDOFF.md](HANDOFF.md).
 
 ## Constraints (apply to every PR)
 
