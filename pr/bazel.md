@@ -52,7 +52,7 @@ unnecessary.
   `protoc --decode=protobom.protobom.Document`; emitted bytes decode cleanly.
 - Docker `gcr.io/bazel-public/bazel:9.3.3`:
   `bazel build //src/main/java/com/google/devtools/build/lib/bazel/sbom:sbom`
-  passes.
+  and `bazel test //src/test/shell/integration:sbom_test` pass.
 
 ## Backwards compatibility
 

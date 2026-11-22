@@ -19,4 +19,4 @@ Stages: queued → recon → design → approved → implemented → pr-drafted 
 
 Verification: Maven Docker compile + targeted tests pass (3/3); Gradle Docker
 `embeddedIntegTest` for `SbomReportTaskIntegrationTest` passes; Bazel Docker
-`//src/main/java/com/google/devtools/build/lib/bazel/sbom:sbom` builds.
+build target and `sbom_test` shell integration test pass.
