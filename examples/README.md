@@ -30,3 +30,62 @@ The patched implementations do not expose a `--format` switch. Each one writes t
 - Cargo SBOM precursor JSON: `cargo -Zsbom` (not SPDX, CycloneDX, or protobom)
 
 For a format a patched tool does not emit, convert the generated SBOM with an external SPDX/CycloneDX converter or add a serializer to that tool. Do not parse the protobom binary as JSON.
+
+## Convert protobom to SPDX or CycloneDX
+
+The `.bin` files are protobuf-encoded `sbom.Document` messages. Use the protobom library to decode the message and render the same document as SPDX or CycloneDX:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/protobom/protobom/pkg/formats"
+    "github.com/protobom/protobom/pkg/sbom"
+    "github.com/protobom/protobom/pkg/writer"
+    "google.golang.org/protobuf/proto"
+)
+
+func main() {
+    data, err := os.ReadFile(os.Args[1])
+    if err != nil {
+        fmt.Fprintf(os.Stderr, "read: %v\n", err)
+        os.Exit(1)
+    }
+
+    doc := &sbom.Document{}
+    if err := proto.Unmarshal(data, doc); err != nil {
+        fmt.Fprintf(os.Stderr, "decode protobom: %v\n", err)
+        os.Exit(1)
+    }
+
+    target := formats.SPDX23JSON
+    if len(os.Args) == 3 && os.Args[2] == "cyclonedx" {
+        target = formats.CDX16JSON
+    }
+
+    w := writer.New()
+    if err := w.WriteStreamWithOptions(doc, os.Stdout, &writer.Options{Format: target}); err != nil {
+        fmt.Fprintf(os.Stderr, "write: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+Set up the converter once:
+
+```sh
+go mod init convert
+go get github.com/protobom/protobom google.golang.org/protobuf
+```
+
+Then render either format:
+
+```sh
+go run convert.go examples/go/sbom.protobom.bin > sbom.spdx.json
+go run convert.go examples/go/sbom.protobom.bin cyclonedx > sbom.cdx.json
+```
+
+Change `formats.SPDX23JSON` to `formats.SPDX3JSON` for SPDX 3.0.1, or change `formats.CDX16JSON` to `formats.CDX17JSON` for CycloneDX 1.7.
