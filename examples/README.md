@@ -33,7 +33,7 @@ For a format a patched tool does not emit, convert the generated SBOM with an ex
 
 ## Convert protobom to SPDX or CycloneDX
 
-The `.bin` files are protobuf-encoded `sbom.Document` messages. Use the protobom library to decode the message and render the same document as SPDX or CycloneDX:
+Protobom is a Go library, not a standalone converter. The companion `sbom-convert` CLI has installable release binaries, but it reads SPDX or CycloneDX JSON only. It cannot read a protobom `.bin` directly. The `.bin` files are protobuf-encoded `sbom.Document` messages, so decode them before rendering.
 
 ```go
 package main
@@ -86,6 +86,13 @@ Then render either format:
 ```sh
 go run convert.go examples/go/sbom.protobom.bin > sbom.spdx.json
 go run convert.go examples/go/sbom.protobom.bin cyclonedx > sbom.cdx.json
+```
+
+Install `sbom-convert` from the release assets at `https://github.com/protobom/sbom-convert/releases`. Use it after producing JSON:
+
+```sh
+sbom-convert convert sbom.spdx.json -f cyclonedx-1.6 -o sbom.cdx.json
+sbom-convert convert sbom.cdx.json -f spdx-2.3 -o sbom.spdx.json
 ```
 
 Change `formats.SPDX23JSON` to `formats.SPDX3JSON` for SPDX 3.0.1, or change `formats.CDX16JSON` to `formats.CDX17JSON` for CycloneDX 1.7.
