@@ -4,7 +4,7 @@ PR: https://github.com/apache/maven/pull/14093 (open)
 
 Title: `Add opt-in SBOM generation (--sbom)`
 
-Branch: `sbom-support`, commits `280635bc`, `fc81e18` and `2b36806`, 303 insertions across 7 files.
+Branch: `sbom-support`, commits `280635bc`, `fc81e18`, `2b36806` and `635b898`, 309 insertions across 7 files.
 
 ---
 
@@ -50,10 +50,8 @@ no external plugin or scanner is needed.
   option is present; existing parse tests unaffected.
 - `SbomReportWriterTest.java`: invokes `SbomReportWriter.write()` with a minimal
   `MavenExecutionResult`, asserts CycloneDX `bomFormat`, component `group`, `name`,
-  root `ref` and `dependsOn` edge.
-- Docker `maven:3.9.9-eclipse-temurin-21`:
-  `mvn -pl impl/maven-cli -am -DskipTests compile` passes, and
-  `mvn -pl impl/maven-cli -am -Dtest=... test` passes 3/3.
+  root `ref`, `dependsOn` edge, and an empty `dependsOn` entry for a leaf component.
+- Local Maven 4.2.0-SNAPSHOT: `mvn -pl impl/maven-cli -am -Dtest=CommonsCliMavenOptionsSbomTest,SbomReportWriterTest -Dsurefire.failIfNoSpecifiedTests=false test` passes 3/3.
 
 ## Backwards compatibility
 
@@ -69,7 +67,12 @@ no external plugin or scanner is needed.
 - Incomplete JSON escaping: control characters U+0000–U+001F are escaped.
 - Javadoc said "file name": now says path relative to the top-level project
   directory.
-- No writer test: `SbomReportWriterTest` added. Final commit `2b36806`.
+- No writer test: `SbomReportWriterTest` added.
+- Components with no dependencies: every component now has an entry in
+  `dependencies[]`, with an empty `dependsOn` for leaf components.
+- Deprecated `tools` array: switched to the CycloneDX 1.6 object form,
+  `{"components": [{"type": "application", "name": "mvn"}]}`.
+  Final commit `635b898`.
 
 ## Gaps (documented, never fabricated)
 
