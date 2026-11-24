@@ -4,7 +4,7 @@
   "version": 1,
   "metadata": {
     "timestamp": "2023-11-14T22:13:20Z",
-    "tools": [{"name": "mvn"}],
+    "tools": {"components": [{"type": "application", "name": "mvn"}]},
     "authors": [{"name": "Apache Maven"}]
   },
   "components": [
@@ -12,6 +12,7 @@
     {"type": "library", "group": "org.example", "name": "leaf1", "version": "1.0", "purl": "pkg:maven/org.example/leaf1@1.0"}
   ],
   "dependencies": [
-    {"ref": "pkg:maven/com.example/sbom-demo@1.0", "dependsOn": ["pkg:maven/org.example/leaf1@1.0"]}
+    {"ref": "pkg:maven/com.example/sbom-demo@1.0", "dependsOn": ["pkg:maven/org.example/leaf1@1.0"]},
+    {"ref": "pkg:maven/org.example/leaf1@1.0", "dependsOn": []}
   ]
 }
